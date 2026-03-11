@@ -64,7 +64,7 @@ public class LuceneMerger implements Merger {
         try {
             if (rowIdMapping != null) {
                 logger.info("LuceneMerger starting merge with RowIdMapping: fileId={}, mappingSize={}",
-                    rowIdMapping.getFileId(), rowIdMapping.getMapping().size());
+                    rowIdMapping.getFileId(), rowIdMapping.size());
             }
 
             // Collect the writer generations of the segments we want to merge.
@@ -100,9 +100,9 @@ public class LuceneMerger implements Merger {
                 }
 
                 // Validate ROW_ID doc values against RowIdMapping (requires opening reader)
-//                if (rowIdMapping != null) {
-//                    validateRowIdMapping(rowIdMapping, segmentsToMerge, segmentNamesBefore);
-//                }
+//               if (rowIdMapping != null) {
+//                   validateRowIdMapping(rowIdMapping, segmentsToMerge, segmentNamesBefore);
+//               }
 
                 WriterFileSet mergedFileSet = WriterFileSet.builder()
                     .directory(targetDirectoryPath)
@@ -134,12 +134,12 @@ public class LuceneMerger implements Merger {
     }
 
     /**
-     * Validates ROW_ID doc values in merged segment against RowIdMapping.
-     * Only called when debug logging is enabled.
+     * Validates that the DocMap reordering was applied correctly.
+     * Logs the merged segment's ___row_id values and mapping consistency.
      */
     private void validateRowIdMapping(RowIdMapping rowIdMapping, List<SegmentCommitInfo> segmentsToMerge,
                                       Set<String> segmentNamesBefore) throws IOException {
-        // Build fileId -> baseDoc offset map
+        // Build fileId -> baseDoc offset map (Lucene's concatenation order)
         Map<String, Integer> fileIdToBaseDoc = new HashMap<>();
         int baseDoc = 0;
         for (SegmentCommitInfo info : segmentsToMerge) {
@@ -149,6 +149,8 @@ public class LuceneMerger implements Merger {
             }
             baseDoc += info.info.maxDoc();
         }
+
+        logger.info("Validation fileIdToBaseDoc: {}", fileIdToBaseDoc);
 
         try (DirectoryReader reader = DirectoryReader.open(indexWriter)) {
             for (LeafReaderContext ctx : reader.leaves()) {
@@ -168,27 +170,62 @@ public class LuceneMerger implements Merger {
                     mergedRowIds[rowIdDV.docID()] = rowIdDV.longValue();
                 }
 
+                // Log merged row IDs for debugging
+                StringBuilder sb = new StringBuilder("Merged ___row_id values: [");
+                for (int i = 0; i < Math.min(totalDocs, 20); i++) {
+                    if (i > 0) sb.append(", ");
+                    sb.append(i).append("=").append(mergedRowIds[i]);
+                }
+                sb.append("]");
+                logger.info(sb.toString());
+
+                // Validate: for each file, the RowIdMapping says
+                // (fileId, oldRowId) -> newRowId (position in merged parquet)
+                // The DocMap reorders Lucene docs so that Lucene doc N = parquet row N
+                // So after reorder, Lucene doc at newRowId should contain the data
+                // from the original segment at (fileId, oldRowId)
                 int matched = 0, mismatched = 0, skipped = 0;
-                for (Map.Entry<RowId, Long> entry : rowIdMapping.getMapping().entrySet()) {
-                    RowId oldRowId = entry.getKey();
-                    int newDocPos = entry.getValue().intValue();
+                Map<String, Integer> fileOffsets = rowIdMapping.getFileOffsets();
+                Map<String, Integer> fileSizes = rowIdMapping.getFileSizes();
 
-                    if (fileIdToBaseDoc.get(oldRowId.getFileId()) == null) {
-                        skipped++;
+                for (Map.Entry<String, Integer> entry : fileOffsets.entrySet()) {
+                    String fileId = entry.getKey();
+                    int offset = entry.getValue();
+                    int size = fileSizes.getOrDefault(fileId, 0);
+                    Integer segBase = fileIdToBaseDoc.get(fileId);
+
+                    if (segBase == null) {
+                        skipped += size;
                         continue;
                     }
-                    if (newDocPos >= totalDocs) {
-                        mismatched++;
-                        continue;
-                    }
 
-                    if (mergedRowIds[newDocPos] == oldRowId.getRowId()) {
-                        matched++;
-                    } else {
-                        mismatched++;
+                    for (int i = 0; i < size; i++) {
+                        long newRowId = rowIdMapping.getNewRowIdAt(offset + i);
+                        int oldDocId = segBase + i;
+
+                        if (newRowId >= totalDocs || oldDocId >= totalDocs) {
+                            mismatched++;
+                            continue;
+                        }
+
+                        // After reorder, Lucene doc at newRowId should have the ___row_id
+                        // that was originally at oldDocId. Since each original segment
+                        // has ___row_id = [0, 1, 2, ...], the original ___row_id = i
+                        // After DocMap reorder, the value at position newRowId should be i
+                        long actualRowId = mergedRowIds[(int) newRowId];
+                        if (actualRowId == i) {
+                            matched++;
+                        } else {
+                            mismatched++;
+                            if (mismatched <= 10) {
+                                logger.warn("Validation MISMATCH: fileId={}, oldRowId={}, newPos={}, " +
+                                    "expected ___row_id={}, actual ___row_id={}, oldDocId={}",
+                                    fileId, i, newRowId, i, actualRowId, oldDocId);
+                            }
+                        }
                     }
                 }
-                logger.debug("RowIdMapping validation: matched={}, mismatched={}, skipped={}", matched, mismatched, skipped);
+                logger.info("RowIdMapping validation: matched={}, mismatched={}, skipped={}", matched, mismatched, skipped);
             }
         }
     }

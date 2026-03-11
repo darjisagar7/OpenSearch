@@ -1,18 +1,25 @@
 package org.opensearch.index.engine.exec.merge;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.lucene.index.CodecReader;
 import org.apache.lucene.index.MergePolicy;
 import org.apache.lucene.index.SegmentCommitInfo;
 import org.apache.lucene.index.Sorter;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.util.packed.PackedInts;
+import org.apache.lucene.util.packed.PackedLongValues;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class CustomOneMerge extends MergePolicy.OneMerge {
+
+    private static final Logger logger = LogManager.getLogger(CustomOneMerge.class);
 
     private final RowIdMapping rowIdMapping;
     private final long writerGeneration;
@@ -33,11 +40,17 @@ public class CustomOneMerge extends MergePolicy.OneMerge {
 
         // Build oldToNew: maps current doc position -> new position after reorder
         // Build newToOld: maps new position -> original doc position
-        int[] oldToNew = new int[totalDocs];
-        int[] newToOld = new int[totalDocs];
+        // Use PackedLongValues for memory efficiency (2-3 bytes per entry vs 4 bytes for int[])
+        PackedLongValues.Builder oldToNewBuilder = PackedLongValues.packedBuilder(PackedInts.DEFAULT);
+//        PackedLongValues.Builder newToOldBuilder = PackedLongValues.packedBuilder(PackedInts.DEFAULT);
+
+        // Initialize with identity mapping (each doc maps to itself by default)
+        for (int i = 0; i < totalDocs; i++) {
+            oldToNewBuilder.add(i);
+//            newToOldBuilder.add(i);
+        }
 
         // Track doc offset per segment, keyed by writer_generation attribute
-        // (matches RowId.fileId which is now the generation number string)
         Map<String, Integer> fileIdToBaseDoc = new HashMap<>();
         int baseDoc = 0;
         for (SegmentCommitInfo segmentInfo : segments) {
@@ -48,33 +61,63 @@ public class CustomOneMerge extends MergePolicy.OneMerge {
             baseDoc += segmentInfo.info.maxDoc();
         }
 
-        // Build mapping from RowIdMapping
-        for (Map.Entry<RowId, Long> entry : rowIdMapping.getMapping().entrySet()) {
-            RowId oldRowId = entry.getKey();
-            long newRowId = entry.getValue();
+        // Build temporary arrays for mapping (we'll compress them after)
+        int[] oldToNewArray = new int[totalDocs];
+//        int[] newToOldArray = new int[totalDocs];
 
-            String oldFileId = oldRowId.getFileId();
-            Integer segmentBase = fileIdToBaseDoc.get(oldFileId);
-            if (segmentBase != null) {
-                int oldDocId = segmentBase + (int) oldRowId.getRowId();
-                int newDocId = (int) newRowId;
+        // Initialize with identity mapping
+        for (int i = 0; i < totalDocs; i++) {
+            oldToNewArray[i] = i;
+//            newToOldArray[i] = i;
+        }
+
+        // Build mapping using fileSizes for correct iteration
+        Map<String, Integer> fileOffsets = rowIdMapping.getFileOffsets();
+        Map<String, Integer> fileSizes = rowIdMapping.getFileSizes();
+
+        for (Map.Entry<String, Integer> entry : fileOffsets.entrySet()) {
+            String fileId = entry.getKey();
+            Integer segmentBase = fileIdToBaseDoc.get(fileId);
+            if (segmentBase == null) {
+                continue;
+            }
+
+            int offset = entry.getValue();
+            int size = fileSizes.getOrDefault(fileId, 0);
+
+            // Process all mappings for this file
+            for (int i = 0; i < size; i++) {
+                int oldDocId = segmentBase + i;
+                int newDocId = (int) rowIdMapping.getNewRowIdAt(offset + i);
 
                 if (oldDocId < totalDocs && newDocId < totalDocs) {
-                    oldToNew[oldDocId] = newDocId;
-                    newToOld[newDocId] = oldDocId;
+                    oldToNewArray[oldDocId] = newDocId;
+//                    newToOldArray[newDocId] = oldDocId;
                 }
             }
         }
 
+        // Compress into PackedLongValues for memory efficiency
+        oldToNewBuilder = PackedLongValues.packedBuilder(PackedInts.DEFAULT);
+//        newToOldBuilder = PackedLongValues.packedBuilder(PackedInts.DEFAULT);
+
+        for (int i = 0; i < totalDocs; i++) {
+            oldToNewBuilder.add(oldToNewArray[i]);
+//            newToOldBuilder.add(newToOldArray[i]);
+        }
+
+        PackedLongValues oldToNew = oldToNewBuilder.build();
+//        PackedLongValues newToOld = newToOldBuilder.build();
+
         return new Sorter.DocMap() {
             @Override
             public int oldToNew(int docID) {
-                return oldToNew[docID];
+                return (int) oldToNew.get(docID);
             }
 
             @Override
             public int newToOld(int docID) {
-                return newToOld[docID];
+                return 0;
             }
 
             @Override

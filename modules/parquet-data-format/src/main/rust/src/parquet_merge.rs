@@ -52,13 +52,6 @@ struct ProcessingStats {
     total_batches: usize,
 }
 
-// Row ID mapping for cross-format merge
-struct RowIdMappingData {
-    old_file_id: String,
-    old_row_id: i64,
-    new_row_id: i64,
-}
-
 // JNI Entry Point - returns RowIdMapping to Java
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_parquet_parquetdataformat_bridge_RustBridge_mergeParquetFilesInRust<'local>(
@@ -78,15 +71,15 @@ pub extern "system" fn Java_com_parquet_parquetdataformat_bridge_RustBridge_merg
 
         log_info!("Starting merge of {} files to {}", input_files_vec.len(), output_path);
 
-        let (mappings, output_file_id) = process_parquet_files(&input_files_vec, &output_path)?;
+        let ((mapping_array, file_offsets, file_sizes), output_file_id) = process_parquet_files(&input_files_vec, &output_path)?;
 
         log_info!("Merge completed successfully");
-        Ok((mappings, output_file_id))
+        Ok((mapping_array, file_offsets, file_sizes, output_file_id))
     });
 
     match result {
-        Ok(Ok((mappings, output_file_id))) => {
-            match create_row_id_mapping_object(&mut env, mappings, &output_file_id) {
+        Ok(Ok((mapping_array, file_offsets, file_sizes, output_file_id))) => {
+            match create_row_id_mapping_object(&mut env, mapping_array, file_offsets, file_sizes, &output_file_id) {
                 Ok(obj) => obj,
                 Err(e) => {
                     let error_msg = format!("Failed to create RowIdMapping: {}", e);
@@ -111,37 +104,20 @@ pub extern "system" fn Java_com_parquet_parquetdataformat_bridge_RustBridge_merg
     }
 }
 
-// Main processing function - returns row ID mappings
-pub fn process_parquet_files(input_files: &[String], output_path: &str) -> Result<(Vec<RowIdMappingData>, String), Box<dyn Error>> {
-    // Validate input
+// Main processing function - returns row ID mappings as (array, offsets)
+pub fn process_parquet_files(input_files: &[String], output_path: &str) -> Result<((Vec<i64>, std::collections::HashMap<String, usize>, std::collections::HashMap<String, usize>), String), Box<dyn Error>> {
     validate_input(input_files)?;
-
-    // Read schema from first file
     let schema = read_schema_from_file(&input_files[0])?;
-    // log_info!("Schema read successfully: {:?}", schema);
-
-    // Create writer
     let mut writer = create_writer(output_path, schema.clone())?;
-
-    // Process files and collect mappings
-    let (stats, mappings) = process_files(input_files, &schema, &mut writer)?;
-
-    // Close writer
+    let (_stats, mapping_data) = process_files(input_files, &schema, &mut writer)?;
     writer.close()
         .map_err(|e| ParquetMergeError::WriterCreationError(format!("Failed to close writer: {}", e)))?;
-
-    // log_info!(
-    //     "Processing complete: {} files, {} rows, {} batches, {} mappings",
-    //     stats.files_processed, stats.total_rows, stats.total_batches, mappings.len()
-    // );
-
     let output_file_id = std::path::Path::new(output_path)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(output_path)
         .to_string();
-
-    Ok((mappings, output_file_id))
+    Ok((mapping_data, output_file_id))
 }
 
 // Validation functions
@@ -187,37 +163,73 @@ fn create_writer(output_path: &str, schema: SchemaRef) -> Result<ArrowWriter<Rat
         .map_err(|e| ParquetMergeError::WriterCreationError(format!("Failed to create writer: {}", e)).into())
 }
 
-// File processing - collects row ID mappings
+// File processing - builds mapping arrays directly (no intermediate Vec)
+// File processing - builds mapping arrays directly, offsets in input_files order
 fn process_files(
     input_files: &[String],
     schema: &SchemaRef,
     writer: &mut ArrowWriter<RateLimitedWriter<File>>,
-) -> Result<(ProcessingStats, Vec<RowIdMappingData>), Box<dyn Error>> {
+) -> Result<(ProcessingStats, (Vec<i64>, std::collections::HashMap<String, usize>, std::collections::HashMap<String, usize>)), Box<dyn Error>> {
     let mut current_row_id: i64 = 0;
     let mut stats = ProcessingStats {
         files_processed: 0,
         total_rows: 0,
         total_batches: 0,
     };
-    let mut mappings = Vec::new();
+
+    // First pass: count rows per file and collect file IDs in input order
+    let mut file_ids: Vec<String> = Vec::new();
+    let mut file_sizes: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
 
     for path in input_files {
-        // log_info!("Processing file: {}", path);
-
-        let old_file_id = std::path::Path::new(path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(path)
-            .to_string();
-        // Extract writer generation from filename (e.g. "_parquet_file_generation_12.parquet"
-        // or "_parquet_file_generation_merged_12.parquet") so it matches the Lucene segment's
-        // "writer_generation" attribute used by CustomOneMerge for cross-format row ID mapping.
         let old_file_id = extract_writer_generation(path)
-            .unwrap_or_else(|| old_file_id);
+            .unwrap_or_else(|| {
+                std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(path)
+                    .to_string()
+            });
 
         let file = File::open(path)
             .map_err(|e| ParquetMergeError::InvalidFile(format!("{}: {}", path, e)))?;
+        let reader = ParquetRecordBatchReaderBuilder::try_new(file)
+            .map_err(|e| ParquetMergeError::BatchProcessingError(format!("Failed to create reader: {}", e)))?
+            .with_batch_size(READER_BATCH_SIZE)
+            .build()
+            .map_err(|e| ParquetMergeError::BatchProcessingError(format!("Failed to build reader: {}", e)))?;
 
+        let mut file_row_count = 0;
+        for batch_result in reader {
+            let batch = batch_result
+                .map_err(|e| ParquetMergeError::BatchProcessingError(format!("Failed to read batch: {}", e)))?;
+            file_row_count += batch.num_rows();
+        }
+
+        file_ids.push(old_file_id.clone());
+        file_sizes.insert(old_file_id, file_row_count);
+    }
+
+    // Assign offsets in input_files order (NOT sorted - order must match processing order)
+    let mut file_offsets: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut current_offset = 0;
+    for file_id in &file_ids {
+        file_offsets.insert(file_id.clone(), current_offset);
+        // log_info!("File '{}' assigned offset {} (size: {})", file_id, current_offset, file_sizes[file_id]);
+        current_offset += file_sizes[file_id];
+    }
+
+    // Allocate mapping array
+    let total_size = current_offset;
+    let mut mapping_array = vec![0i64; total_size];
+
+    // Second pass: process files and build mapping
+    current_row_id = 0;
+    for (idx, path) in input_files.iter().enumerate() {
+        let old_file_id = &file_ids[idx];
+
+        let file = File::open(path)
+            .map_err(|e| ParquetMergeError::InvalidFile(format!("{}: {}", path, e)))?;
         let reader = ParquetRecordBatchReaderBuilder::try_new(file)
             .map_err(|e| ParquetMergeError::BatchProcessingError(format!("Failed to create reader: {}", e)))?
             .with_batch_size(READER_BATCH_SIZE)
@@ -227,40 +239,32 @@ fn process_files(
         let mut file_rows = 0;
         let mut file_batches = 0;
         let file_start_row_id = current_row_id;
+        let file_offset = file_offsets[old_file_id.as_str()];
 
         for batch_result in reader {
             let original_batch = batch_result
                 .map_err(|e| ParquetMergeError::BatchProcessingError(format!("Failed to read batch: {}", e)))?;
-
             let batch_rows = original_batch.num_rows();
-
             let new_batch = update_row_ids(&original_batch, current_row_id, schema)?;
-
             writer.write(&new_batch)
                 .map_err(|e| ParquetMergeError::BatchProcessingError(format!("Failed to write batch: {}", e)))?;
-
             current_row_id += batch_rows as i64;
             file_rows += batch_rows;
             file_batches += 1;
         }
 
-        // Create mappings for this file
+        // Build mappings directly into array
         for old_row_id in 0..file_rows as i64 {
-            mappings.push(RowIdMappingData {
-                old_file_id: old_file_id.clone(),
-                old_row_id,
-                new_row_id: file_start_row_id + old_row_id,
-            });
+            let position = file_offset + old_row_id as usize;
+            mapping_array[position] = file_start_row_id + old_row_id;
         }
 
         stats.files_processed += 1;
         stats.total_rows += file_rows;
         stats.total_batches += file_batches;
-
-        // log_info!("File processed: {} rows, {} batches", file_rows, file_batches);
     }
 
-    Ok((stats, mappings))
+    Ok((stats, (mapping_array, file_offsets, file_sizes)))
 }
 
 // Row ID update logic
@@ -311,9 +315,9 @@ fn convert_java_list_to_vec(env: &mut JNIEnv, list: JObject) -> Result<Vec<Strin
     Ok(result)
 }
 
-fn catch_unwind<F: FnOnce() -> Result<(Vec<RowIdMappingData>, String), Box<dyn Error>>>(
+fn catch_unwind<F: FnOnce() -> Result<(Vec<i64>, std::collections::HashMap<String, usize>, std::collections::HashMap<String, usize>, String), Box<dyn Error>>>(
     f: F
-) -> Result<Result<(Vec<RowIdMappingData>, String), Box<dyn Error>>, Box<dyn Any + Send>> {
+) -> Result<Result<(Vec<i64>, std::collections::HashMap<String, usize>, std::collections::HashMap<String, usize>, String), Box<dyn Error>>, Box<dyn Any + Send>> {
     std::panic::catch_unwind(AssertUnwindSafe(f))
 }
 
@@ -328,48 +332,48 @@ fn extract_writer_generation(path: &str) -> Option<String> {
     filename.rsplit('_').next().map(|s| s.to_string())
 }
 
-// Create Java RowIdMapping object
+// Create Java RowIdMapping object using compact array + offsets approach
 fn create_row_id_mapping_object<'local>(
     env: &mut JNIEnv<'local>,
-    mappings: Vec<RowIdMappingData>,
+    mapping_array: Vec<i64>,
+    file_offsets: std::collections::HashMap<String, usize>,
+    file_sizes: std::collections::HashMap<String, usize>,
     output_file_id: &str,
 ) -> Result<JObject<'local>, Box<dyn Error>> {
-    // Create HashMap<RowId, Long>
-    let hash_map = env.new_object("java/util/HashMap", "()V", &[])?;
+    let total_size = mapping_array.len();
 
-    for mapping in mappings {
-        // Create RowId object
-        let row_id_obj = env.new_object(
-            "org/opensearch/index/engine/exec/merge/RowId",
-            "(JLjava/lang/String;)V",
-            &[
-                JValue::Long(mapping.old_row_id),
-                JValue::Object(&env.new_string(&mapping.old_file_id)?.into()),
-            ],
-        )?;
+    // Create Java long array
+    let j_mapping_array = env.new_long_array(total_size as i32)?;
+    env.set_long_array_region(&j_mapping_array, 0, &mapping_array)?;
 
-        // Create Long object for new row ID
-        let new_row_id_obj = env.new_object(
-            "java/lang/Long",
-            "(J)V",
-            &[JValue::Long(mapping.new_row_id)],
-        )?;
-
-        // Put into HashMap
-        env.call_method(
-            &hash_map,
-            "put",
+    // Create Java HashMap for file offsets
+    let j_offsets_map = env.new_object("java/util/HashMap", "()V", &[])?;
+    for (file_id, offset) in file_offsets {
+        let j_file_id = env.new_string(&file_id)?;
+        let j_offset = env.new_object("java/lang/Integer", "(I)V", &[JValue::Int(offset as i32)])?;
+        env.call_method(&j_offsets_map, "put",
             "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
-            &[JValue::Object(&row_id_obj), JValue::Object(&new_row_id_obj)],
-        )?;
+            &[JValue::Object(&j_file_id.into()), JValue::Object(&j_offset)])?;
     }
 
-    // Create RowIdMapping object
+    // Create Java HashMap for file sizes
+    let j_sizes_map = env.new_object("java/util/HashMap", "()V", &[])?;
+    for (file_id, size) in file_sizes {
+        let j_file_id = env.new_string(&file_id)?;
+        let j_size = env.new_object("java/lang/Integer", "(I)V", &[JValue::Int(size as i32)])?;
+        env.call_method(&j_sizes_map, "put",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            &[JValue::Object(&j_file_id.into()), JValue::Object(&j_size)])?;
+    }
+
+    // Constructor: ([JLjava/util/Map;Ljava/util/Map;Ljava/lang/String;)V
     let row_id_mapping = env.new_object(
         "org/opensearch/index/engine/exec/merge/RowIdMapping",
-        "(Ljava/util/Map;Ljava/lang/String;)V",
+        "([JLjava/util/Map;Ljava/util/Map;Ljava/lang/String;)V",
         &[
-            JValue::Object(&hash_map),
+            JValue::Object(&j_mapping_array.into()),
+            JValue::Object(&j_offsets_map),
+            JValue::Object(&j_sizes_map),
             JValue::Object(&env.new_string(output_file_id)?.into()),
         ],
     )?;
@@ -386,3 +390,127 @@ fn create_row_id_mapping_object<'local>(
 // ) {
 //     log_info("Closing ArrowRustBridge");
 // }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_numeric_file_id_sorting() {
+        let mut file_ids = vec!["0".to_string(), "1".to_string(), "10".to_string(), "2".to_string(), "3".to_string()];
+
+        // Test numeric sorting
+        file_ids.sort_by(|a, b| {
+            match (a.parse::<i64>(), b.parse::<i64>()) {
+                (Ok(a_num), Ok(b_num)) => a_num.cmp(&b_num),
+                _ => a.cmp(b),
+            }
+        });
+
+        assert_eq!(file_ids, vec!["0", "1", "2", "3", "10"]);
+        println!("Numeric sort result: {:?}", file_ids);
+    }
+
+    #[test]
+    fn test_file_offset_mapping() {
+        // Simulate the offset calculation logic
+        let mut file_sizes = std::collections::HashMap::new();
+        file_sizes.insert("0".to_string(), 1);
+        file_sizes.insert("1".to_string(), 1);
+        file_sizes.insert("10".to_string(), 1);
+        file_sizes.insert("2".to_string(), 1);
+
+        let mut sorted_files: Vec<String> = file_sizes.keys().cloned().collect();
+        sorted_files.sort_by(|a, b| {
+            match (a.parse::<i64>(), b.parse::<i64>()) {
+                (Ok(a_num), Ok(b_num)) => a_num.cmp(&b_num),
+                _ => a.cmp(b),
+            }
+        });
+
+        let mut file_offsets = std::collections::HashMap::new();
+        let mut current_offset = 0;
+
+        for file_id in &sorted_files {
+            file_offsets.insert(file_id.clone(), current_offset);
+            current_offset += file_sizes[file_id];
+        }
+
+        // Verify offsets
+        assert_eq!(file_offsets.get("0"), Some(&0));
+        assert_eq!(file_offsets.get("1"), Some(&1));
+        assert_eq!(file_offsets.get("2"), Some(&2));
+        assert_eq!(file_offsets.get("10"), Some(&3)); // Should be 3 (after 0,1,2)
+
+        println!("File offsets: {:?}", file_offsets);
+        println!("Sorted order: {:?}", sorted_files);
+    }
+
+    #[test]
+    fn test_row_id_mapping_with_multiple_files_multiple_rows() {
+        // Simulate 3 files with different row counts
+        let mut file_sizes = std::collections::HashMap::new();
+        file_sizes.insert("0".to_string(), 5);   // File 0: 5 rows
+        file_sizes.insert("1".to_string(), 3);   // File 1: 3 rows
+        file_sizes.insert("10".to_string(), 2);  // File 10: 2 rows
+        file_sizes.insert("2".to_string(), 4);   // File 2: 4 rows
+
+        // Calculate offsets with numeric sorting
+        let mut sorted_files: Vec<String> = file_sizes.keys().cloned().collect();
+        sorted_files.sort_by(|a, b| {
+            match (a.parse::<i64>(), b.parse::<i64>()) {
+                (Ok(a_num), Ok(b_num)) => a_num.cmp(&b_num),
+                _ => a.cmp(b),
+            }
+        });
+
+        println!("Sorted files: {:?}", sorted_files);
+        assert_eq!(sorted_files, vec!["0", "1", "2", "10"]);
+
+        let mut file_offsets = std::collections::HashMap::new();
+        let mut current_offset = 0;
+
+        for file_id in &sorted_files {
+            file_offsets.insert(file_id.clone(), current_offset);
+            println!("File '{}': offset={}, size={}", file_id, current_offset, file_sizes[file_id]);
+            current_offset += file_sizes[file_id];
+        }
+
+        // Verify offsets
+        assert_eq!(file_offsets.get("0"), Some(&0));   // Offset 0, rows 0-4
+        assert_eq!(file_offsets.get("1"), Some(&5));   // Offset 5, rows 5-7
+        assert_eq!(file_offsets.get("2"), Some(&8));   // Offset 8, rows 8-11
+        assert_eq!(file_offsets.get("10"), Some(&12)); // Offset 12, rows 12-13
+
+        // Build mapping array
+        let total_size = current_offset;
+        let mut mapping_array = vec![0i64; total_size];
+
+        let mut new_row_id = 0i64;
+        for file_id in &sorted_files {
+            let offset = file_offsets[file_id];
+            let size = file_sizes[file_id];
+
+            for old_row_id in 0..size as i64 {
+                let position = offset + old_row_id as usize;
+                mapping_array[position] = new_row_id;
+                println!("Mapping: fileId={}, oldRowId={} -> position={}, newRowId={}",
+                    file_id, old_row_id, position, new_row_id);
+                new_row_id += 1;
+            }
+        }
+
+        // Verify some mappings
+        assert_eq!(mapping_array[0], 0);   // File 0, row 0 -> new row 0
+        assert_eq!(mapping_array[4], 4);   // File 0, row 4 -> new row 4
+        assert_eq!(mapping_array[5], 5);   // File 1, row 0 -> new row 5
+        assert_eq!(mapping_array[7], 7);   // File 1, row 2 -> new row 7
+        assert_eq!(mapping_array[8], 8);   // File 2, row 0 -> new row 8
+        assert_eq!(mapping_array[12], 12); // File 10, row 0 -> new row 12
+        assert_eq!(mapping_array[13], 13); // File 10, row 1 -> new row 13
+
+        println!("Total size: {}", total_size);
+        println!("Mapping array: {:?}", mapping_array);
+    }
+}
