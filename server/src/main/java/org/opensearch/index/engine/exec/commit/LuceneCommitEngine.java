@@ -154,6 +154,10 @@ public class LuceneCommitEngine {
         return this.combinedDeletionPolicy.getSafeCommitInfo();
     }
 
+    public IndexWriter getIndexWriter() {
+        return indexWriter;
+    }
+
     /**
      * Sets the soft deletes policy on the underlying CombinedDeletionPolicy.
      * This enables proper checkpoint tracking for peer recovery and translog trimming.

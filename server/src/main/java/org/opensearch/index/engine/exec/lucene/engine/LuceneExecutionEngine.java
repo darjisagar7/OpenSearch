@@ -111,6 +111,7 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
             iwc.setMergePolicy(NoMergePolicy.INSTANCE);
             iwc.setMergeScheduler(new SerialMergeScheduler());
             iwc.setIndexSort(new Sort(new SortField(ROW_ID, SortField.Type.LONG)));
+            iwc.setParentField(null);
 
             indexWriter = new IndexWriter(store.directory(), iwc);
         }
