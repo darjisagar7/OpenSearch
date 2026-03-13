@@ -47,7 +47,7 @@ import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 
-public class LuceneCommitEngine implements Committer {
+public class LuceneCommitEngine {
 
     private final Logger logger;
     private IndexWriter indexWriter;
@@ -55,21 +55,18 @@ public class LuceneCommitEngine implements Committer {
     private final Store store;
     private volatile SegmentInfos lastCommittedSegmentInfos;
 
-    public LuceneCommitEngine(Store store, TranslogDeletionPolicy translogDeletionPolicy, LongSupplier globalCheckpointSupplier, boolean primaryMode)
+    public LuceneCommitEngine(
+        Store store,
+        CombinedDeletionPolicy combinedDeletionPolicy,
+        IndexWriter indexWriter)
         throws IOException {
         this.logger = Loggers.getLogger(LuceneCommitEngine.class, store.shardId());
-        this.combinedDeletionPolicy = new CombinedDeletionPolicy(logger, translogDeletionPolicy, null, globalCheckpointSupplier);
-        IndexWriterConfig indexWriterConfig = new IndexWriterConfig();
-        indexWriterConfig.setIndexDeletionPolicy(combinedDeletionPolicy);
-        indexWriterConfig.setMergePolicy(NoMergePolicy.INSTANCE);
+        this.combinedDeletionPolicy = combinedDeletionPolicy;
         this.store = store;
+        this.indexWriter = indexWriter;
         this.lastCommittedSegmentInfos = store.readLastCommittedSegmentsInfo();
-        if (primaryMode) {
-            this.indexWriter = new IndexWriter(store.directory(), indexWriterConfig);
-        }
     }
 
-    @Override
     public synchronized void addLuceneIndexes(List<Segment> segments) throws IOException {
 
         for(Segment segment : segments) {
@@ -77,7 +74,11 @@ public class LuceneCommitEngine implements Committer {
             if(wfs == null || wfs.refresh()) continue;
 
             try {
-                indexWriter.addIndexes(new HardlinkCopyDirectoryWrapper(new NIOFSDirectory(Path.of(wfs.getDirectory()))));
+                Path writerDir = Path.of(indexWriter.getDirectory().toString()).toAbsolutePath().normalize();
+                Path segmentDir = Path.of(wfs.getDirectory()).toAbsolutePath().normalize();
+                if (!writerDir.equals(segmentDir)) {
+                    indexWriter.addIndexes(NIOFSDirectory.open(segmentDir));
+                }
                 wfs.setRefreshed();
             } catch (IOException e) {
                 throw new RuntimeException("Not able to copy it to the main writer in commiter: {}", e);
@@ -110,7 +111,6 @@ public class LuceneCommitEngine implements Committer {
         }
     }
 
-    @Override
     public synchronized CommitPoint commit(Iterable<Map.Entry<String, String>> commitData, CatalogSnapshot catalogSnapshot) {
         indexWriter.setLiveCommitData(commitData);
         try {
@@ -140,19 +140,16 @@ public class LuceneCommitEngine implements Committer {
         }
     }
 
-    @Override
     public Map<String, String> getLastCommittedData() {
         return MapBuilder.<String, String>newMapBuilder().putAll(lastCommittedSegmentInfos.getUserData()).immutableMap();
     }
 
-    @Override
     public CommitStats getCommitStats() {
         String segmentId = Base64.getEncoder().encodeToString(lastCommittedSegmentInfos.getId());
         // TODO: Implement numDocs
         return new CommitStats(lastCommittedSegmentInfos.getUserData(), lastCommittedSegmentInfos.getLastGeneration(), segmentId, 0);
     }
 
-    @Override
     public SafeCommitInfo getSafeCommitInfo() {
         return this.combinedDeletionPolicy.getSafeCommitInfo();
     }
@@ -185,10 +182,5 @@ public class LuceneCommitEngine implements Committer {
         } catch (Exception e) {
             throw new EngineException(store.shardId(), "Failed to acquire safe index commit", e);
         }
-    }
-
-    @Override
-    public void close() throws IOException {
-        IOUtils.close(indexWriter);
     }
 }
