@@ -1,5 +1,7 @@
 package com.parquet.parquetdataformat.bridge;
 
+import org.opensearch.index.engine.exec.merge.RowIdMapping;
+
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -42,5 +44,5 @@ public class RustBridge {
 
 
     // Native method declarations - these will be implemented in the JNI library
-    public static native void mergeParquetFilesInRust(List<Path> inputFiles, String outputFile, String indexName);
+    public static native RowIdMapping mergeParquetFilesInRust(List<Path> inputFiles, String outputFile, String indexName);
 }

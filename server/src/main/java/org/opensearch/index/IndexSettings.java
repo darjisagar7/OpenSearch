@@ -882,7 +882,7 @@ public final class IndexSettings {
      */
     public static final Setting<List<String>> INDEX_COMPOSITE_SECONDARY_DATA_FORMATS_SETTING = Setting.listSetting(
         "index.composite.secondary_data_formats",
-        Collections.emptyList(),
+        List.of("Lucene"),
         s -> s,
         Property.IndexScope
     );

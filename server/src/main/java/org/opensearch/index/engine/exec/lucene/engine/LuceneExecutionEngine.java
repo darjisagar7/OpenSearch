@@ -52,6 +52,8 @@ import org.opensearch.index.engine.exec.lucene.LuceneDataFormat;
 import org.opensearch.index.engine.exec.lucene.fields.LuceneFieldRegistry;
 import org.opensearch.index.engine.exec.lucene.writer.LuceneWriter;
 import org.opensearch.index.engine.exec.lucene.writer.LuceneWriterCodec;
+import org.opensearch.index.engine.exec.merge.CustomIndexWriter;
+import org.opensearch.index.engine.exec.merge.LuceneMerger;
 import org.opensearch.index.mapper.MapperService;
 import org.opensearch.index.shard.ShardPath;
 import org.opensearch.index.store.Store;
@@ -77,6 +79,7 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
     private static final Logger logger = LogManager.getLogger(LuceneExecutionEngine.class);
     private final boolean isPrimaryEngine;
     private LuceneCommitEngine luceneCommitEngine;
+    private LuceneMerger luceneMerger;
 
     public LuceneExecutionEngine(EngineConfig engineConfig, MapperService mapperService, boolean isPrimaryEngine, ShardPath shardPath, IndexSettings indexSettings, FieldAssignments fieldAssignments) {
         this.engineConfig = engineConfig;
@@ -104,7 +107,7 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
         );
 
         //Use CustomIndexWriter here
-        IndexWriter indexWriter = null;
+        CustomIndexWriter indexWriter = null;
         if (primaryMode) {
             IndexWriterConfig iwc = new IndexWriterConfig();
             iwc.setIndexDeletionPolicy(combinedDeletionPolicy);
@@ -112,8 +115,9 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
             iwc.setMergeScheduler(new SerialMergeScheduler());
             iwc.setIndexSort(new Sort(new SortField(ROW_ID, SortField.Type.LONG)));
 
-            indexWriter = new IndexWriter(store.directory(), iwc);
+            indexWriter = new CustomIndexWriter(store.directory(), iwc);
         }
+        this.luceneMerger = new LuceneMerger(indexWriter, Path.of(store.directory().toString()));
         this.luceneCommitEngine = new LuceneCommitEngine(store, combinedDeletionPolicy, indexWriter);
     }
 
@@ -195,7 +199,7 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
 
     @Override
     public Merger getMerger() {
-        return null;
+        return luceneMerger;
     }
 
     @Override
