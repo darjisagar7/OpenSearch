@@ -24,6 +24,7 @@ import org.opensearch.index.engine.exec.EngineRole;
 import org.opensearch.index.engine.exec.FieldAssignmentResolver;
 import org.opensearch.index.engine.exec.FieldAssignments;
 import org.opensearch.index.engine.exec.FieldSupportRegistry;
+import org.opensearch.index.engine.exec.DocumentInput;
 import org.opensearch.index.engine.exec.FileInfos;
 import org.opensearch.index.engine.exec.IndexingExecutionEngine;
 import org.opensearch.index.engine.exec.Merger;
@@ -41,16 +42,17 @@ import org.opensearch.plugins.PluginsService;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class CompositeIndexingExecutionEngine implements IndexingExecutionEngine<Any> {
+public class CompositeIndexingExecutionEngine implements IndexingExecutionEngine<Any, CompositeDataFormatWriter.CompositeDocumentInput> {
 
     private final CompositeDataFormatWriterPool dataFormatWriterPool;
     private final Any dataFormat;
     private final AtomicLong writerGeneration;
-    private final List<IndexingExecutionEngine<?>> delegates = new ArrayList<>();
+    private final List<IndexingExecutionEngine<?, ?>> delegates = new ArrayList<>();
     private final FieldSupportRegistry fieldSupportRegistry;
     private final Map<DataFormat, EngineRole> roleMap;
     private final Map<DataFormat, FieldAssignments> fieldAssignmentsMap;
@@ -122,7 +124,7 @@ public class CompositeIndexingExecutionEngine implements IndexingExecutionEngine
             dataFormats.add(plugin.getDataFormat());
             boolean isPrimary = roleMap.get(plugin.getDataFormat()) == EngineRole.PRIMARY;
             FieldAssignments assignments = fieldAssignmentsMap.get(plugin.getDataFormat());
-            IndexingExecutionEngine<?> indexingEngine = plugin.indexingEngine(
+            IndexingExecutionEngine<?, ?> indexingEngine = plugin.indexingEngine(
                 engineConfig, mapperService, isPrimary, shardPath, indexSettings, assignments
             );
             delegates.add(indexingEngine);
@@ -287,14 +289,14 @@ public class CompositeIndexingExecutionEngine implements IndexingExecutionEngine
     @Override
     public void loadWriterFiles(CatalogSnapshot catalogSnapshot) throws IOException {
         // If this get's called will it not throw exception?
-        for (IndexingExecutionEngine<?> delegate : delegates) {
+        for (IndexingExecutionEngine<?, ?> delegate : delegates) {
             delegate.loadWriterFiles(catalogSnapshot);
         }
     }
 
     @Override
     public void deleteFiles(Map<String, Collection<String>> filesToDelete) throws IOException {
-        for (IndexingExecutionEngine<?> delegate : delegates) {
+        for (IndexingExecutionEngine<?, ?> delegate : delegates) {
             // Why creating a map when we are always passing for that format here?
             Map<String, Collection<String>> formatSpecificFilesToDelete = new HashMap<>();
             formatSpecificFilesToDelete.put(delegate.getDataFormat().name(), filesToDelete.get(delegate.getDataFormat().name()));
@@ -315,7 +317,8 @@ public class CompositeIndexingExecutionEngine implements IndexingExecutionEngine
     public RefreshResult refresh(RefreshInput refreshInput) throws IOException {
         RefreshResult finalResult;
         try {
-            List<CompositeDataFormatWriter> dataFormatWriters = dataFormatWriterPool.checkoutAll();
+            List<CompositeDataFormatWriter> dataFormatWriters = new ArrayList<>(dataFormatWriterPool.checkoutAll());
+            dataFormatWriters.sort(Comparator.comparingLong(CompositeDataFormatWriter::getWriterGeneration));
             List<Segment> refreshedSegment = refreshInput.getExistingSegments();
             List<Segment> newSegmentList = new ArrayList<>();
             logger.debug("[COMPOSITE_DEBUG] CompositeIndexingExecutionEngine.refresh: flushing {} writers, existing segments={}",
@@ -329,6 +332,16 @@ public class CompositeIndexingExecutionEngine implements IndexingExecutionEngine
                         dataFormatWriter.getWriterGeneration(), key.name(), value.getFiles());
                     newSegment.addSearchableFiles(key.name(), value);
                 });
+
+                // Apply deletes on parent writer for updated documents
+                for (IndexingExecutionEngine<?, ?> delegate : delegates) {
+                    for (Map.Entry<DataFormat, Writer<DocumentInput<?>>> entry : dataFormatWriter.getWriters()) {
+                        if (entry.getKey().equals(delegate.getDataFormat())) {
+                            delegate.handleDeletesFromWriter(entry.getValue());
+                        }
+                    }
+                }
+
                 dataFormatWriter.close();
                 if (!newSegment.getDFGroupedSearchableFiles().isEmpty()) {
                     newSegmentList.add(newSegment);
@@ -344,7 +357,7 @@ public class CompositeIndexingExecutionEngine implements IndexingExecutionEngine
             }
 
             // call refresh for delegats
-            for (IndexingExecutionEngine<?> delegate : delegates) {
+            for (IndexingExecutionEngine<?, ?> delegate : delegates) {
                 delegate.refresh(new RefreshInput());
             }
 
@@ -364,7 +377,7 @@ public class CompositeIndexingExecutionEngine implements IndexingExecutionEngine
         throw new UnsupportedOperationException("Merger for Composite Engine is not used");
     }
 
-    public List<IndexingExecutionEngine<?>> getDelegates() {
+    public List<IndexingExecutionEngine<?, ?>> getDelegates() {
         return Collections.unmodifiableList(delegates);
     }
 

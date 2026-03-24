@@ -13,6 +13,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.lucene.index.FilterMergePolicy;
 import org.apache.lucene.index.IndexCommit;
 import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.MergePolicy;
 import org.apache.lucene.index.MergeTrigger;
@@ -34,6 +35,7 @@ import org.opensearch.index.engine.CommitStats;
 import org.opensearch.index.engine.EngineConfig;
 import org.opensearch.index.engine.EngineException;
 import org.opensearch.index.engine.SafeCommitInfo;
+import org.opensearch.index.engine.VersionValue;
 import org.opensearch.index.engine.exec.DataFormat;
 import org.opensearch.index.engine.exec.DocumentInput;
 import org.opensearch.index.engine.exec.EngineRole;
@@ -50,6 +52,7 @@ import org.opensearch.index.engine.exec.coord.CatalogSnapshot;
 import org.opensearch.index.engine.exec.coord.Segment;
 import org.opensearch.index.engine.exec.lucene.LuceneDataFormat;
 import org.opensearch.index.engine.exec.lucene.fields.LuceneFieldRegistry;
+import org.opensearch.index.engine.exec.lucene.writer.LuceneDocumentInput;
 import org.opensearch.index.engine.exec.lucene.writer.LuceneWriter;
 import org.opensearch.index.engine.exec.lucene.writer.LuceneWriterCodec;
 import org.opensearch.index.mapper.MapperService;
@@ -68,7 +71,7 @@ import java.util.function.LongSupplier;
 
 import static org.opensearch.index.engine.exec.composite.CompositeDataFormatWriter.ROW_ID;
 
-public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneDataFormat>, Committer {
+public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneDataFormat, LuceneDocumentInput>, Committer {
 
     private final MapperService mapperService;
     private final ShardPath shardPath;
@@ -124,7 +127,7 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
     }
 
     @Override
-    public Writer<? extends DocumentInput<?>> createWriter(long writerGeneration) throws IOException {
+    public Writer<LuceneDocumentInput> createWriter(long writerGeneration) throws IOException {
 
         Path tmpDirectoryPath = shardPath.getDataPath().resolve("tmp");
         Files.createDirectories(tmpDirectoryPath);
@@ -218,11 +221,24 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
 
     }
 
+    @Override
+    public void handleDeletesFromWriter(Writer<?> writer) throws IOException {
+        List<Term> terms = ((LuceneWriter) writer).getDeleteTerms();
+        logger.info("[COMMIT_DEBUG] handleDeletesFromWriter: {} delete terms from child writer, terms={}", terms.size(), terms);
+        luceneCommitEngine.deleteDocuments(terms);
+    }
+
+    @Override
+    public VersionValue resolveDocVersionFromIndex(Term uid, boolean loadSeqNo) throws IOException {
+        return luceneCommitEngine.resolveDocVersionFromIndex(uid, loadSeqNo);
+    }
+
     // --- Committer delegation ---
 
     @Override
     public void addLuceneIndexes(List<Segment> segments) throws IOException {
         luceneCommitEngine.addLuceneIndexes(segments);
+        luceneCommitEngine.logDocCount("After addLuceneIndexes:");
     }
 
     @Override

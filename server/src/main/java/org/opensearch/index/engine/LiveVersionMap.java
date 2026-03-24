@@ -293,7 +293,7 @@ public final class LiveVersionMap implements ReferenceManager.RefreshListener, A
     /**
      * Returns the live version (add or delete) for this uid.
      */
-    VersionValue getUnderLock(final BytesRef uid) {
+    public VersionValue getUnderLock(final BytesRef uid) {
         return getUnderLock(uid, maps);
     }
 
@@ -321,11 +321,11 @@ public final class LiveVersionMap implements ReferenceManager.RefreshListener, A
         return value;
     }
 
-    boolean isUnsafe() {
+    public boolean isUnsafe() {
         return maps.current.isUnsafe() || maps.old.isUnsafe();
     }
 
-    void enforceSafeAccess() {
+    public void enforceSafeAccess() {
         maps.needsSafeAccess = true;
     }
 
@@ -365,7 +365,7 @@ public final class LiveVersionMap implements ReferenceManager.RefreshListener, A
         return true;
     }
 
-    void putDeleteUnderLock(BytesRef uid, DeleteVersionValue version) {
+    public void putDeleteUnderLock(BytesRef uid, DeleteVersionValue version) {
         assert assertKeyedLockHeldByCurrentThread(uid);
         assert uid.bytes.length == uid.length : "Oversized _uid! UID length: " + uid.length + ", bytes length: " + uid.bytes.length;
         putTombstone(uid, version);

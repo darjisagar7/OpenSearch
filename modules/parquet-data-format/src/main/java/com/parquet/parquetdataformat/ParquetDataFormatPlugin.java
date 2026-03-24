@@ -25,6 +25,7 @@ import org.opensearch.env.Environment;
 import org.opensearch.env.NodeEnvironment;
 import org.opensearch.index.engine.EngineConfig;
 import org.opensearch.index.engine.exec.DataFormat;
+import org.opensearch.index.engine.exec.DocumentInput;
 import org.opensearch.index.engine.exec.FieldAssignments;
 import org.opensearch.index.engine.exec.FieldSupportRegistry;
 import org.opensearch.index.engine.exec.IndexingExecutionEngine;
@@ -85,7 +86,7 @@ public class ParquetDataFormatPlugin extends Plugin implements DataSourcePlugin 
 
     @Override
     @SuppressWarnings("unchecked")
-    public <T extends DataFormat> IndexingExecutionEngine<T> indexingEngine(EngineConfig engineConfig, MapperService mapperService, boolean isPrimary, ShardPath shardPath, IndexSettings indexSettings, FieldAssignments fieldAssignments) {
+    public <T extends DataFormat, P extends DocumentInput<?>> IndexingExecutionEngine<T, P> indexingEngine(EngineConfig engineConfig, MapperService mapperService, boolean isPrimary, ShardPath shardPath, IndexSettings indexSettings, FieldAssignments fieldAssignments) {
         ParquetExecutionEngine engine = new ParquetExecutionEngine(
             settings,
             isPrimary,
@@ -93,7 +94,7 @@ public class ParquetDataFormatPlugin extends Plugin implements DataSourcePlugin 
             shardPath,
             indexSettings
         );
-        return (IndexingExecutionEngine<T>) engine;
+        return (IndexingExecutionEngine<T, P>) engine;
     }
 
     @Override

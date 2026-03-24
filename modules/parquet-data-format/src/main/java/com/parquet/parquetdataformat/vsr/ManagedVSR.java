@@ -211,10 +211,9 @@ public class ManagedVSR implements AutoCloseable {
             return;
         }
 
-        // If ACTIVE, must freeze first
+        // If ACTIVE, auto-freeze before closing (handles unused/empty writers)
         if (state == VSRState.ACTIVE) {
-            throw new IllegalStateException(String.format(
-                "Cannot close VSR %s: VSR is still ACTIVE. Must freeze VSR before closing.", id));
+            moveToFrozen();
         }
 
         // If FROZEN, transition to CLOSED

@@ -6,6 +6,7 @@ import org.apache.arrow.vector.BigIntVector;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import com.parquet.parquetdataformat.engine.ParquetDataFormat;
+import org.apache.lucene.index.Term;
 import org.opensearch.index.engine.exec.DataFormat;
 import org.opensearch.index.engine.exec.DocumentInput;
 import org.opensearch.index.engine.exec.EngineRole;
@@ -84,16 +85,21 @@ public class ParquetDocumentInput implements DocumentInput<ManagedVSR> {
         return engineRole;
     }
 
-    @Override
-    public WriteResult addToWriter() throws IOException {
-        // Complete the current document by incrementing row count
-        // This will internally call setValueCount on all field vectors
-        int currentRowCount = managedVSR.getRowCount();
-        managedVSR.setRowCount(currentRowCount + 1);
-
-        // TODO: Return appropriate WriteResult based on operation success
-        return new WriteResult(true, null, 1, 1, 1);
-    }
+//    @Override
+//    public WriteResult addToWriter() throws IOException {
+//        // Complete the current document by incrementing row count
+//        // This will internally call setValueCount on all field vectors
+//        int currentRowCount = managedVSR.getRowCount();
+//        managedVSR.setRowCount(currentRowCount + 1);
+//
+//        // TODO: Return appropriate WriteResult based on operation success
+//        return new WriteResult(true, null, 1, 1, 1);
+//    }
+//
+//    @Override
+//    public WriteResult updateDocumentToWriter(Term uid) throws IOException {
+//        return null;
+//    }
 
     @Override
     public DataFormat getDataFormat() {
@@ -108,5 +114,10 @@ public class ParquetDocumentInput implements DocumentInput<ManagedVSR> {
         // ParquetDocumentInput only holds a reference for field population
 
         // No cleanup needed here - VSRManager handles the ManagedVSR lifecycle
+    }
+
+    @Override
+    public CompositeDataFormatWriter getWriter() {
+        return null;
     }
 }

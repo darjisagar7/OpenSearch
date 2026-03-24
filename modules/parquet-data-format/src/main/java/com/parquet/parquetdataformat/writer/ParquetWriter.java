@@ -2,10 +2,12 @@ package com.parquet.parquetdataformat.writer;
 
 import com.parquet.parquetdataformat.bridge.ParquetFileMetadata;
 import com.parquet.parquetdataformat.memory.ArrowBufferPool;
+import com.parquet.parquetdataformat.vsr.ManagedVSR;
 import com.parquet.parquetdataformat.vsr.VSRManager;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.lucene.index.Term;
 import org.opensearch.index.IndexSettings;
 import org.opensearch.index.engine.exec.EngineRole;
 import org.opensearch.index.engine.exec.FileInfos;
@@ -16,6 +18,7 @@ import org.opensearch.index.engine.exec.WriterFileSet;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Map;
 
 import static com.parquet.parquetdataformat.engine.ParquetDataFormat.PARQUET_DATA_FORMAT;
 
@@ -72,7 +75,7 @@ public class ParquetWriter implements Writer<ParquetDocumentInput> {
     public FileInfos flush(FlushIn flushIn) throws IOException {
         ParquetFileMetadata parquetFileMetadata = vsrManager.flush(flushIn);
         // no data flushed
-        if (file == null) {
+        if (file == null || parquetFileMetadata == null) {
             return FileInfos.empty();
         }
         Path filePath = Path.of(file);
@@ -106,4 +109,28 @@ public class ParquetWriter implements Writer<ParquetDocumentInput> {
         // Get a new ManagedVSR from VSRManager for this document input
         return new ParquetDocumentInput(vsrManager.getActiveManagedVSR(), engineRole);
     }
+
+    @Override
+    public WriteResult addToWriter(ParquetDocumentInput documentInput) throws IOException {
+        ManagedVSR managedVSR = documentInput.getFinalInput();
+        // Complete the current document by incrementing row count
+        // This will internally call setValueCount on all field vectors
+        int currentRowCount = documentInput.getFinalInput().getRowCount();
+        managedVSR.setRowCount(currentRowCount + 1);
+
+        // TODO: Return appropriate WriteResult based on operation success
+        return new WriteResult(true, null, 1, 1, 1);
+    }
+
+    @Override
+    public WriteResult updateDocumentToWriter(Term uid, ParquetDocumentInput documentInput) throws IOException {
+        return null;
+    }
+
+    @Override
+    public void deleteDocumentFromWriter(Term uid) throws IOException {
+        // No-op: Parquet does not support in-place deletes.
+        // Deletes are handled by the Lucene (secondary) engine.
+    }
+
 }

@@ -12,6 +12,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexCommit;
 import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.NoMergePolicy;
@@ -23,12 +24,18 @@ import org.opensearch.common.collect.MapBuilder;
 import org.opensearch.common.concurrent.GatedCloseable;
 import org.opensearch.common.logging.Loggers;
 import org.opensearch.common.lucene.Lucene;
+import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
+import org.opensearch.common.lucene.uid.VersionsAndSeqNoResolver;
+import org.opensearch.common.lucene.uid.VersionsAndSeqNoResolver.DocIdAndVersion;
 import org.opensearch.common.util.io.IOUtils;
 import org.opensearch.index.engine.CombinedDeletionPolicy;
 import org.opensearch.index.engine.CommitStats;
 import org.opensearch.index.engine.EngineException;
+import org.opensearch.index.engine.IndexVersionValue;
+import org.opensearch.index.engine.OpenSearchReaderManager;
 import org.opensearch.index.engine.SafeCommitInfo;
 import org.opensearch.index.engine.SoftDeletesPolicy;
+import org.opensearch.index.engine.VersionValue;
 import org.opensearch.index.engine.exec.DataFormat;
 import org.opensearch.index.engine.exec.WriterFileSet;
 import org.opensearch.index.engine.exec.coord.CatalogSnapshot;
@@ -54,6 +61,7 @@ public class LuceneCommitEngine {
     private final CombinedDeletionPolicy combinedDeletionPolicy;
     private final Store store;
     private volatile SegmentInfos lastCommittedSegmentInfos;
+    private final OpenSearchReaderManager readerManager;
 
     public LuceneCommitEngine(
         Store store,
@@ -65,6 +73,14 @@ public class LuceneCommitEngine {
         this.store = store;
         this.indexWriter = indexWriter;
         this.lastCommittedSegmentInfos = store.readLastCommittedSegmentsInfo();
+        if (indexWriter != null) {
+            OpenSearchDirectoryReader reader = OpenSearchDirectoryReader.wrap(
+                DirectoryReader.open(indexWriter), store.shardId()
+            );
+            this.readerManager = new OpenSearchReaderManager(reader);
+        } else {
+            this.readerManager = null;
+        }
     }
 
     public synchronized void addLuceneIndexes(List<Segment> segments) throws IOException {
@@ -108,6 +124,41 @@ public class LuceneCommitEngine {
                     IOUtils.rm(oldDirectoryPath);
                 }
             }
+        }
+        readerManager.maybeRefresh();
+    }
+
+    public synchronized void deleteDocuments(List<Term> terms) throws IOException {
+        if (!terms.isEmpty()) {
+            logger.info("[COMMIT_DEBUG] Deleting {} docs from parent writer, terms={}", terms.size(), terms);
+            indexWriter.deleteDocuments(terms.toArray(new Term[0]));
+            readerManager.maybeRefresh();
+        }
+    }
+
+    public void logDocCount(String context) throws IOException {
+        final OpenSearchDirectoryReader reader = readerManager.acquire();
+        try {
+            logger.info("[COMMIT_DEBUG] {} numDocs={}, maxDoc={}, deletedDocs={}",
+                context, reader.numDocs(), reader.maxDoc(), reader.maxDoc() - reader.numDocs());
+        } finally {
+            readerManager.release(reader);
+        }
+    }
+
+    public VersionValue resolveDocVersionFromIndex(Term uid, boolean loadSeqNo) throws IOException {
+        if (readerManager == null) {
+            return null;
+        }
+        final OpenSearchDirectoryReader reader = readerManager.acquire();
+        try {
+            DocIdAndVersion docIdAndVersion = VersionsAndSeqNoResolver.loadDocIdAndVersion(reader, uid, loadSeqNo);
+            if (docIdAndVersion != null) {
+                return new IndexVersionValue(null, docIdAndVersion.version, docIdAndVersion.seqNo, docIdAndVersion.primaryTerm);
+            }
+            return null;
+        } finally {
+            readerManager.release(reader);
         }
     }
 

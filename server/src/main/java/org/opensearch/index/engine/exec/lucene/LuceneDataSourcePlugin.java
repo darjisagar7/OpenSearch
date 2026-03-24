@@ -14,6 +14,7 @@ import org.opensearch.common.blobstore.BlobStore;
 import org.opensearch.index.IndexSettings;
 import org.opensearch.index.engine.EngineConfig;
 import org.opensearch.index.engine.exec.DataFormat;
+import org.opensearch.index.engine.exec.DocumentInput;
 import org.opensearch.index.engine.exec.FieldAssignments;
 import org.opensearch.index.engine.exec.FieldSupportRegistry;
 import org.opensearch.index.engine.exec.IndexingExecutionEngine;
@@ -34,8 +35,8 @@ public class LuceneDataSourcePlugin extends Plugin implements DataSourcePlugin {
 
     @Override
     @SuppressWarnings("unchecked")
-    public <T extends DataFormat> IndexingExecutionEngine<T> indexingEngine(EngineConfig engineConfig, MapperService mapperService, boolean isPrimary, ShardPath shardPath, IndexSettings indexSettings, FieldAssignments fieldAssignments) {
-        return (IndexingExecutionEngine<T>) new LuceneExecutionEngine(engineConfig, mapperService, isPrimary, shardPath, indexSettings, fieldAssignments);
+    public <T extends DataFormat, P extends DocumentInput<?>> IndexingExecutionEngine<T, P> indexingEngine(EngineConfig engineConfig, MapperService mapperService, boolean isPrimary, ShardPath shardPath, IndexSettings indexSettings, FieldAssignments fieldAssignments) {
+        return (IndexingExecutionEngine<T, P>) new LuceneExecutionEngine(engineConfig, mapperService, isPrimary, shardPath, indexSettings, fieldAssignments);
     }
 
     @Override

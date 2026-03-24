@@ -38,7 +38,11 @@ import org.opensearch.index.engine.EngineException;
 import org.opensearch.index.engine.FileDeletionListener;
 import org.opensearch.index.engine.FlushFailedEngineException;
 import org.opensearch.index.engine.IndexThrottle;
+import org.opensearch.index.engine.DeleteVersionValue;
+import org.opensearch.index.engine.DeletionStrategy;
+import org.opensearch.index.engine.DeletionStrategyPlanner;
 import org.opensearch.index.engine.IndexingStrategy;
+import org.opensearch.index.engine.IndexVersionValue;
 import org.opensearch.index.engine.IndexingStrategyPlanner;
 import org.opensearch.index.engine.LifecycleAware;
 import org.opensearch.index.engine.LiveVersionMap;
@@ -211,6 +215,8 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
     private final SoftDeletesPolicy softDeletesPolicy;
 
     private final IndexingStrategyPlanner indexingStrategyPlanner;
+    private final DeletionStrategyPlanner deletionStrategyPlanner;
+    private final LiveVersionMap versionMap;
     protected final CatalogSnapshotManager catalogSnapshotManager;
     private ReleasableRef<CatalogSnapshot> lastCommitedCatalogSnapshotRef;
     private final EventListener eventListener;
@@ -365,10 +371,12 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
                 ((LuceneCommitEngine) committerRef).setSoftDeletesPolicy(softDeletesPolicy);
             }
 
+            this.versionMap = new LiveVersionMap();
+            refreshListeners.add(versionMap);
             this.indexingStrategyPlanner = new IndexingStrategyPlanner(
                 engineConfig,
                 engineConfig.getShardId(),
-                new LiveVersionMap(),
+                versionMap,
                 maxUnsafeAutoIdTimestamp::get,
                 maxSeqNoOfUpdatesOrDeletes::get,
                 localCheckpointTracker::getProcessedCheckpoint,
@@ -376,6 +384,14 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
                 this::compareOpToDocBasedOnSeqNo,
                 this::resolveDocVersion,
                 this::updateAutoIdTimestamp,
+                this::tryAcquireInFlightDocs
+            );
+            this.deletionStrategyPlanner = new DeletionStrategyPlanner(
+                engineConfig,
+                engineConfig.getShardId(),
+                this::hasBeenProcessedBefore,
+                this::compareOpToDocBasedOnSeqNo,
+                this::resolveDocVersion,
                 this::tryAcquireInFlightDocs
             );
             this.throttle = new IndexThrottle();
@@ -585,7 +601,10 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
         try (ReleasableLock releasableLock = readLock.acquire()) {
             ensureOpen();
             assert assertIncomingSequenceNumber(index.origin(), index.seqNo());
-            try (Releasable indexThrottle = doThrottle ? throttle.acquireThrottle() : () -> {}) {
+            try (
+                Releasable ignored = versionMap.acquireLock(index.uid().bytes());
+                Releasable indexThrottle = doThrottle ? throttle.acquireThrottle() : () -> {}
+            ) {
                 lastWriteNanos = index.startTime();
                 final IndexingStrategy plan = indexingStrategyForOperation(index);
                 final Engine.IndexResult indexResult;
@@ -618,12 +637,17 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
                     if (plan.executeOpOnEngine || plan.optimizeAppendOnly) {
                         index.documentInput.setSeqNo(index.seqNo());
                         index.documentInput.setPrimaryTerm(SeqNoFieldMapper.PRIMARY_TERM_NAME, index.primaryTerm());
-                        index.documentInput.setVersion(1); // we are not supporting update in parquet
-                         logger.debug("[COMPOSITE_DEBUG] Indexing doc id=[{}] seqNo=[{}] primaryTerm=[{}] — writing to engine",
-                             index.id(), index.seqNo(), index.primaryTerm());
-                        WriteResult writeResult = index.documentInput.addToWriter();
+                        index.documentInput.setVersion(plan.version);
+                        logger.debug("[COMPOSITE_DEBUG] Indexing doc id=[{}] seqNo=[{}] primaryTerm=[{}] — writing to engine",
+                            index.id(), index.seqNo(), index.primaryTerm());
+                        CompositeDataFormatWriter writer = index.documentInput.getWriter();
+                        if (plan.currentNotFoundOrDeleted) {
+                            writer.addToWriter(index.documentInput);
+                        } else {
+                            writer.updateDocumentToWriter(index.uid(), index.documentInput);
+                        }
                         indexResult =
-                            new Engine.IndexResult(writeResult.version(), index.primaryTerm(), index.seqNo(), writeResult.success());
+                            new Engine.IndexResult(plan.version, index.primaryTerm(), index.seqNo(), plan.currentNotFoundOrDeleted);
                     } else {
                         indexResult =
                             new Engine.IndexResult(plan.version, index.primaryTerm(), index.seqNo(), plan.currentNotFoundOrDeleted);
@@ -641,6 +665,13 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
                         location = null;
                     }
                     indexResult.setTranslogLocation(location);
+                }
+                if ((plan.executeOpOnEngine || plan.optimizeAppendOnly) && indexResult.getResultType() == Engine.Result.Type.SUCCESS) {
+                    final Translog.Location translogLocation = indexResult.getTranslogLocation();
+                    versionMap.maybePutIndexUnderLock(
+                        index.uid().bytes(),
+                        new IndexVersionValue(translogLocation, plan.version, index.seqNo(), index.primaryTerm())
+                    );
                 }
                 localCheckpointTracker.markSeqNoAsProcessed(indexResult.getSeqNo());
                 if (indexResult.getTranslogLocation() == null && !(indexResult.getFailure() != null
@@ -681,8 +712,21 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
     }
 
     /** resolves the current version of the document, returning null if not found */
-    private VersionValue resolveDocVersion(final Engine.Operation op, boolean loadSeqNo) {
-        return null;
+    private VersionValue resolveDocVersion(final Engine.Operation op, boolean loadSeqNo) throws IOException {
+        assert op.uid() != null : "operation must have a uid";
+        if (versionMap.isUnsafe()) {
+            synchronized (versionMap) {
+                if (versionMap.isUnsafe()) {
+                    refresh("unsafe_version_map");
+                }
+                versionMap.enforceSafeAccess();
+            }
+        }
+        VersionValue versionValue = versionMap.getUnderLock(op.uid().bytes());
+        if (versionValue == null) {
+            versionValue = compositeEngineCommitter.resolveDocVersionFromIndex(op.uid(), loadSeqNo);
+        }
+        return versionValue;
     }
 
     /**
@@ -780,7 +824,7 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
 
     @Override
     public void advanceMaxSeqNoOfUpdatesOrDeletes(long maxSeqNoOfUpdatesOnPrimary) {
-        // Noop since we're not supporting updates or deletes yet.
+        maxSeqNoOfUpdatesOrDeletes.updateAndGet(curr -> Math.max(curr, maxSeqNoOfUpdatesOnPrimary));
     }
 
     @Override
@@ -821,6 +865,7 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
             refreshInput.setExistingSegments(new ArrayList<>(catalogSnapshotReleasableRef.getRef().getSegments()));
             RefreshResult refreshResult = engine.refresh(refreshInput);
             if (refreshResult != null) {
+                // Apply deletes.
                 catalogSnapshotManager.applyRefreshResult(refreshResult);
                 refreshed = true;
             }
@@ -921,7 +966,93 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
 
     @Override
     public Engine.DeleteResult delete(Engine.Delete delete) throws IOException {
-        return null;
+        assert Objects.equals(delete.uid().field(), IdFieldMapper.NAME) : delete.uid().field();
+        final Engine.DeleteResult deleteResult;
+        try (ReleasableLock ignored = readLock.acquire(); Releasable ignored2 = versionMap.acquireLock(delete.uid().bytes())) {
+            ensureOpen();
+            lastWriteNanos = delete.startTime();
+            final DeletionStrategy plan = deletionStrategyForOperation(delete);
+            if (plan.earlyResultOnPreFlightError.isPresent()) {
+                assert delete.origin() == Engine.Operation.Origin.PRIMARY : delete.origin();
+                deleteResult = (Engine.DeleteResult) plan.earlyResultOnPreFlightError.get();
+            } else {
+                if (delete.origin() == Engine.Operation.Origin.PRIMARY) {
+                    delete = new Engine.Delete(
+                        delete.id(),
+                        delete.uid(),
+                        generateSeqNoForOperationOnPrimary(delete),
+                        delete.primaryTerm(),
+                        delete.version(),
+                        delete.versionType(),
+                        delete.origin(),
+                        delete.startTime(),
+                        delete.getIfSeqNo(),
+                        delete.getIfPrimaryTerm()
+                    );
+                    advanceMaxSeqNoOfUpdatesOrDeletes(delete.seqNo());
+                } else {
+                    markSeqNoAsSeen(delete.seqNo());
+                }
+
+                assert delete.seqNo() >= 0 : "ops should have an assigned seq no.; origin: " + delete.origin();
+
+                if (plan.executeOpOnEngine || plan.addStaleOpToEngine) {
+                    // Get a writer from the pool, record the delete, release it back
+                    CompositeDataFormatWriter writer = (CompositeDataFormatWriter) engine.createCompositeWriter();
+                    try {
+                        writer.deleteDocumentFromWriter(delete.uid());
+                    } finally {
+                        engine.getDataFormatWriterPool().releaseAndUnlock(writer);
+                    }
+                    deleteResult = new Engine.DeleteResult(
+                        plan.version, delete.primaryTerm(), delete.seqNo(), plan.currentlyDeleted == false
+                    );
+                    if (plan.executeOpOnEngine) {
+                        versionMap.putDeleteUnderLock(
+                            delete.uid().bytes(),
+                            new DeleteVersionValue(
+                                plan.version,
+                                delete.seqNo(),
+                                delete.primaryTerm(),
+                                engineConfig.getThreadPool().relativeTimeInMillis()
+                            )
+                        );
+                    }
+                } else {
+                    deleteResult = new Engine.DeleteResult(
+                        plan.version, delete.primaryTerm(), delete.seqNo(), plan.currentlyDeleted == false
+                    );
+                }
+            }
+
+            if (delete.origin().isFromTranslog() == false && deleteResult.getResultType() == Engine.Result.Type.SUCCESS) {
+                final Translog.Location location = translogManager.add(new Translog.Delete(delete, deleteResult));
+                deleteResult.setTranslogLocation(location);
+            }
+            localCheckpointTracker.markSeqNoAsProcessed(deleteResult.getSeqNo());
+            if (deleteResult.getTranslogLocation() == null) {
+                assert delete.origin().isFromTranslog() || deleteResult.getSeqNo() == SequenceNumbers.UNASSIGNED_SEQ_NO;
+                localCheckpointTracker.markSeqNoAsPersisted(deleteResult.getSeqNo());
+            }
+            deleteResult.setTook(System.nanoTime() - delete.startTime());
+            deleteResult.freeze();
+            return deleteResult;
+        } catch (RuntimeException | IOException e) {
+            try {
+                maybeFailEngine("delete id[" + delete.id() + "] origin[" + delete.origin() + "] seq#[" + delete.seqNo() + "]", e);
+            } catch (Exception inner) {
+                e.addSuppressed(inner);
+            }
+            throw e;
+        }
+    }
+
+    private DeletionStrategy deletionStrategyForOperation(final Engine.Delete delete) throws IOException {
+        if (delete.origin() == Engine.Operation.Origin.PRIMARY) {
+            return deletionStrategyPlanner.planOperationAsPrimary(delete);
+        } else {
+            return deletionStrategyPlanner.planOperationAsNonPrimary(delete);
+        }
     }
 
     @Override
@@ -1399,6 +1530,8 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
             assert rwl.isWriteLockedByCurrentThread()
                 || failEngineLock.isHeldByCurrentThread() : "Either the write lock must be held or the engine must be currently be failing itself";
             try {
+                    this.versionMap.clear();
+                    refreshListeners.remove(versionMap);
                     IOUtils.close(engine, translogManager, compositeEngineCommitter);
                 } catch (Exception e) {
                     logger.warn("Failed to close translog", e);
