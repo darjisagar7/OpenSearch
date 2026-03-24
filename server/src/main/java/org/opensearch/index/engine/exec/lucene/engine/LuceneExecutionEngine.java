@@ -223,9 +223,9 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
 
     @Override
     public void handleDeletesFromWriter(Writer<?> writer) throws IOException {
-        List<Term> terms = ((LuceneWriter) writer).getDeleteTerms();
-        logger.info("[COMMIT_DEBUG] handleDeletesFromWriter: {} delete terms from child writer, terms={}", terms.size(), terms);
-        luceneCommitEngine.deleteDocuments(terms);
+        List<LuceneWriter.DeleteEntry> entries = ((LuceneWriter) writer).getDeleteEntries();
+        logger.info("[COMMIT_DEBUG] handleDeletesFromWriter: staging {} delete entries from child writer", entries.size());
+        luceneCommitEngine.stageDeletes(entries);
     }
 
     @Override

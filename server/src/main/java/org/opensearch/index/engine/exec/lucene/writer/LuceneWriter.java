@@ -9,6 +9,7 @@
 package org.opensearch.index.engine.exec.lucene.writer;
 
 import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.util.BytesRef;
 import org.opensearch.index.engine.exec.DataFormat;
@@ -19,6 +20,7 @@ import org.opensearch.index.engine.exec.WriteResult;
 import org.opensearch.index.engine.exec.Writer;
 import org.opensearch.index.engine.exec.WriterFileSet;
 import org.opensearch.index.mapper.ParseContext;
+import org.opensearch.index.mapper.SeqNoFieldMapper;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -66,7 +68,8 @@ public class LuceneWriter implements Writer<LuceneDocumentInput> {
     public WriteResult updateDocumentToWriter(Term uid, LuceneDocumentInput documentInput) {
         try {
             long seqNum = writer.updateDocument(uid, documentInput.getDocument());
-            lastDeleteEntrySet.put(uid.bytes(), new DeleteEntry(uid));
+            long seqNo = extractSeqNo(documentInput);
+            lastDeleteEntrySet.put(uid.bytes(), new DeleteEntry(uid, seqNo));
             return new WriteResult(true, null, 1, 1, seqNum);
         } catch (IOException exception) {
             return new WriteResult(false, exception, 1, 1, 1);
@@ -76,7 +79,12 @@ public class LuceneWriter implements Writer<LuceneDocumentInput> {
     @Override
     public void deleteDocumentFromWriter(Term uid) throws IOException {
         writer.deleteDocuments(uid);
-        lastDeleteEntrySet.put(uid.bytes(), new DeleteEntry(uid));
+        lastDeleteEntrySet.put(uid.bytes(), new DeleteEntry(uid, Long.MAX_VALUE));
+    }
+
+    private long extractSeqNo(LuceneDocumentInput documentInput) {
+        IndexableField field = documentInput.getDocument().getField(SeqNoFieldMapper.NAME);
+        return field != null && field.numericValue() != null ? field.numericValue().longValue() : -1;
     }
 
     @Override
@@ -102,23 +110,25 @@ public class LuceneWriter implements Writer<LuceneDocumentInput> {
         return new LuceneDocumentInput(new ParseContext.Document(), writer, engineRole);
     }
 
-    public List<Term> getDeleteTerms() {
-        List<Term> terms = new ArrayList<>();
-        for (DeleteEntry entry : lastDeleteEntrySet.values()) {
-            terms.add(entry.getTerm());
-        }
-        return terms;
+    public List<DeleteEntry> getDeleteEntries() {
+        return new ArrayList<>(lastDeleteEntrySet.values());
     }
 
     public static class DeleteEntry {
         private final Term term;
+        private final long seqNo;
 
-        public DeleteEntry(Term term) {
+        public DeleteEntry(Term term, long seqNo) {
             this.term = term;
+            this.seqNo = seqNo;
         }
 
         public Term getTerm() {
             return term;
+        }
+
+        public long getSeqNo() {
+            return seqNo;
         }
     }
 }

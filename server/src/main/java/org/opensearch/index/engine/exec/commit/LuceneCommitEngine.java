@@ -18,7 +18,12 @@ import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.index.SegmentCommitInfo;
 import org.apache.lucene.index.SegmentInfos;
+import org.apache.lucene.document.NumericDocValuesField;
 import org.apache.lucene.misc.store.HardlinkCopyDirectoryWrapper;
+import org.apache.lucene.search.BooleanClause;
+import org.apache.lucene.search.BooleanQuery;
+import org.apache.lucene.search.Query;
+import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.store.NIOFSDirectory;
 import org.opensearch.common.collect.MapBuilder;
 import org.opensearch.common.concurrent.GatedCloseable;
@@ -41,12 +46,15 @@ import org.opensearch.index.engine.exec.WriterFileSet;
 import org.opensearch.index.engine.exec.coord.CatalogSnapshot;
 import org.opensearch.index.engine.exec.coord.Segment;
 import org.opensearch.index.engine.exec.lucene.LuceneDataFormat;
+import org.opensearch.index.engine.exec.lucene.writer.LuceneWriter;
+import org.opensearch.index.mapper.SeqNoFieldMapper;
 import org.opensearch.index.store.Store;
 import org.opensearch.index.translog.TranslogDeletionPolicy;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Base64;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +70,8 @@ public class LuceneCommitEngine {
     private final Store store;
     private volatile SegmentInfos lastCommittedSegmentInfos;
     private final OpenSearchReaderManager readerManager;
+    // Staged delete entries from child writers, applied after addIndexes in addLuceneIndexes.
+    private final List<LuceneWriter.DeleteEntry> pendingDeletes = new ArrayList<>();
 
     public LuceneCommitEngine(
         Store store,
@@ -101,6 +111,21 @@ public class LuceneCommitEngine {
             }
         }
 
+        // Apply staged cross-writer deletes: delete old versions by _id where _seq_no < update's seqNo.
+        // The _id TermQuery narrows candidates to ~2 docs, so the doc-values range check is negligible.
+        if (!pendingDeletes.isEmpty()) {
+            logger.info("[COMMIT_DEBUG] Applying {} staged deletes after addIndexes", pendingDeletes.size());
+            for (LuceneWriter.DeleteEntry entry : pendingDeletes) {
+                Query deleteQuery = new BooleanQuery.Builder()
+                    .add(new TermQuery(entry.getTerm()), BooleanClause.Occur.MUST)
+                    .add(NumericDocValuesField.newSlowRangeQuery(
+                        SeqNoFieldMapper.NAME, Long.MIN_VALUE, entry.getSeqNo() - 1), BooleanClause.Occur.MUST)
+                    .build();
+                indexWriter.deleteDocuments(deleteQuery);
+            }
+            pendingDeletes.clear();
+        }
+
         final Map<Long, Segment> segmentByGeneration =
             segments.stream().collect(Collectors.toMap(Segment::getGeneration, Function.identity()));
 
@@ -126,6 +151,10 @@ public class LuceneCommitEngine {
             }
         }
         readerManager.maybeRefresh();
+    }
+
+    public synchronized void stageDeletes(List<LuceneWriter.DeleteEntry> entries) {
+        pendingDeletes.addAll(entries);
     }
 
     public synchronized void deleteDocuments(List<Term> terms) throws IOException {

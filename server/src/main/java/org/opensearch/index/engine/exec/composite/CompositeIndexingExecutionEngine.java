@@ -134,7 +134,11 @@ public class CompositeIndexingExecutionEngine implements IndexingExecutionEngine
 
         // logger.debug("Registered dataformats: {}", this.dataFormat);
         this.dataFormatWriterPool = new CompositeDataFormatWriterPool(
-            () -> new CompositeDataFormatWriter(this, writerGeneration.getAndIncrement()),
+            () -> {
+                long gen = writerGeneration.getAndIncrement();
+                logger.info("[COMMIT_DEBUG] Creating new CompositeDataFormatWriter gen={}", gen);
+                return new CompositeDataFormatWriter(this, gen);
+            },
             LinkedList::new,
             Runtime.getRuntime().availableProcessors()
         );
@@ -321,14 +325,14 @@ public class CompositeIndexingExecutionEngine implements IndexingExecutionEngine
             dataFormatWriters.sort(Comparator.comparingLong(CompositeDataFormatWriter::getWriterGeneration));
             List<Segment> refreshedSegment = refreshInput.getExistingSegments();
             List<Segment> newSegmentList = new ArrayList<>();
-            logger.debug("[COMPOSITE_DEBUG] CompositeIndexingExecutionEngine.refresh: flushing {} writers, existing segments={}",
+            logger.info("[COMMIT_DEBUG] CompositeIndexingExecutionEngine.refresh: flushing {} writers, existing segments={}",
                 dataFormatWriters.size(), refreshedSegment.size());
             // flush to disk
             for (CompositeDataFormatWriter dataFormatWriter : dataFormatWriters) {
                 Segment newSegment = new Segment(dataFormatWriter.getWriterGeneration());
                 FileInfos fileInfos = dataFormatWriter.flush(null);
                 fileInfos.getWriterFilesMap().forEach((key, value) -> {
-                    logger.debug("[COMPOSITE_DEBUG]   writer gen={} flushed format=[{}] files={}",
+                    logger.info("[COMMIT_DEBUG]   writer gen={} flushed format=[{}] files={}",
                         dataFormatWriter.getWriterGeneration(), key.name(), value.getFiles());
                     newSegment.addSearchableFiles(key.name(), value);
                 });
