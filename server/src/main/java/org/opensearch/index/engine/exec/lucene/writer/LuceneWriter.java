@@ -22,6 +22,9 @@ import org.opensearch.index.engine.exec.WriterFileSet;
 import org.opensearch.index.mapper.ParseContext;
 import org.opensearch.index.mapper.SeqNoFieldMapper;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -31,6 +34,7 @@ import java.util.Map;
 
 public class LuceneWriter implements Writer<LuceneDocumentInput> {
 
+    private static final Logger logger = LogManager.getLogger(LuceneWriter.class);
     private final IndexWriter writer;
     private final long writerGeneration;
     private final Path directoryPath;
@@ -57,7 +61,10 @@ public class LuceneWriter implements Writer<LuceneDocumentInput> {
     @Override
     public WriteResult addToWriter(LuceneDocumentInput documentInput) {
         try {
+            logger.info("[LUCENE_WRITER] addDocument gen=[{}] numFields=[{}]",
+                writerGeneration, documentInput.getDocument().getFields().size());
             long seqNum = writer.addDocument(documentInput.getDocument());
+            logger.info("[LUCENE_WRITER] addDocument complete seqNum=[{}]", seqNum);
             return new WriteResult(true, null, 1, 1, seqNum);
         } catch (IOException exception) {
             return new WriteResult(false, exception, 1, 1, 1);
@@ -67,9 +74,13 @@ public class LuceneWriter implements Writer<LuceneDocumentInput> {
     @Override
     public WriteResult updateDocumentToWriter(Term uid, LuceneDocumentInput documentInput) {
         try {
+            logger.info("[LUCENE_WRITER] updateDocument uid=[{}] gen=[{}] numFields=[{}]",
+                uid, writerGeneration, documentInput.getDocument().getFields().size());
             long seqNum = writer.updateDocument(uid, documentInput.getDocument());
             long seqNo = extractSeqNo(documentInput);
             lastDeleteEntrySet.put(uid.bytes(), new DeleteEntry(uid, seqNo));
+            logger.info("[LUCENE_WRITER] updateDocument complete seqNum=[{}] seqNo=[{}] deleteEntries=[{}]",
+                seqNum, seqNo, lastDeleteEntrySet.size());
             return new WriteResult(true, null, 1, 1, seqNum);
         } catch (IOException exception) {
             return new WriteResult(false, exception, 1, 1, 1);
@@ -78,8 +89,10 @@ public class LuceneWriter implements Writer<LuceneDocumentInput> {
 
     @Override
     public void deleteDocumentFromWriter(Term uid) throws IOException {
+        logger.info("[LUCENE_WRITER] deleteDocument uid=[{}] gen=[{}]", uid, writerGeneration);
         writer.deleteDocuments(uid);
         lastDeleteEntrySet.put(uid.bytes(), new DeleteEntry(uid, Long.MAX_VALUE));
+        logger.info("[LUCENE_WRITER] deleteDocument complete deleteEntries=[{}]", lastDeleteEntrySet.size());
     }
 
     private long extractSeqNo(LuceneDocumentInput documentInput) {

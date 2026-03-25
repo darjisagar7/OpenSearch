@@ -226,6 +226,9 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
     public void handleDeletesFromWriter(Writer<?> writer) throws IOException {
         List<LuceneWriter.DeleteEntry> entries = ((LuceneWriter) writer).getDeleteEntries();
         logger.info("[COMMIT_DEBUG] handleDeletesFromWriter: staging {} delete entries from child writer", entries.size());
+        for (LuceneWriter.DeleteEntry entry : entries) {
+            logger.info("[COMMIT_DEBUG]   staged delete: term=[{}] seqNo=[{}]", entry.getTerm(), entry.getSeqNo());
+        }
         luceneCommitEngine.stageDeletes(entries);
     }
 

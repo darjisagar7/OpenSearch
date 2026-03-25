@@ -257,7 +257,20 @@ final class DefaultSearchContext extends SearchContext {
         this.indexService = readerContext.indexService();
         this.indexShard = readerContext.indexShard();
         this.clusterService = clusterService;
-        this.engineSearcher = (Engine.Searcher) indexShard.getEngine().acquireSearcher("search");
+        if (indexShard.indexSettings().isOptimizedIndex()) {
+            org.opensearch.index.engine.exec.coord.CompositeEngine compositeEngine = indexShard.getIndexingExecutionCoordinator();
+            org.opensearch.common.lucene.index.OpenSearchDirectoryReader luceneReader = compositeEngine.getLuceneExecutionEngine().acquireReader();
+            this.engineSearcher = new Engine.Searcher(
+                "search",
+                luceneReader,
+                indexShard.getEngine().config().getSimilarity(),
+                indexShard.getEngine().config().getQueryCache(),
+                indexShard.getEngine().config().getQueryCachingPolicy(),
+                () -> compositeEngine.getLuceneExecutionEngine().releaseReader(luceneReader)
+            );
+        } else {
+            this.engineSearcher = (Engine.Searcher) indexShard.getEngine().acquireSearcher("search");
+        }
         this.concurrentSearchMode = evaluateConcurrentSearchMode(executor);
         this.searcher = new ContextIndexSearcher(
             engineSearcher.getIndexReader(),

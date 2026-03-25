@@ -638,12 +638,14 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
                         index.documentInput.setSeqNo(index.seqNo());
                         index.documentInput.setPrimaryTerm(SeqNoFieldMapper.PRIMARY_TERM_NAME, index.primaryTerm());
                         index.documentInput.setVersion(plan.version);
-                        logger.debug("[COMPOSITE_DEBUG] Indexing doc id=[{}] seqNo=[{}] primaryTerm=[{}] — writing to engine",
-                            index.id(), index.seqNo(), index.primaryTerm());
                         CompositeDataFormatWriter writer = index.documentInput.getWriter();
                         if (plan.currentNotFoundOrDeleted) {
+                            logger.info("[COMPOSITE_FLOW] INDEX new doc id=[{}] seqNo=[{}] version=[{}] primaryTerm=[{}]",
+                                index.id(), index.seqNo(), plan.version, index.primaryTerm());
                             writer.addToWriter(index.documentInput);
                         } else {
+                            logger.info("[COMPOSITE_FLOW] UPDATE existing doc id=[{}] seqNo=[{}] version=[{}] uid=[{}]",
+                                index.id(), index.seqNo(), plan.version, index.uid());
                             writer.updateDocumentToWriter(index.uid(), index.documentInput);
                         }
                         indexResult =
@@ -997,6 +999,8 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
                 assert delete.seqNo() >= 0 : "ops should have an assigned seq no.; origin: " + delete.origin();
 
                 if (plan.executeOpOnEngine || plan.addStaleOpToEngine) {
+                    logger.info("[COMPOSITE_FLOW] DELETE doc id=[{}] seqNo=[{}] version=[{}] uid=[{}]",
+                        delete.id(), delete.seqNo(), plan.version, delete.uid());
                     // Get a writer from the pool, record the delete, release it back
                     CompositeDataFormatWriter writer = (CompositeDataFormatWriter) engine.createCompositeWriter();
                     try {

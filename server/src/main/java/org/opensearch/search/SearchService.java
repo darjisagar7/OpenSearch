@@ -1494,8 +1494,9 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             request.getClusterAlias(),
             OriginalIndices.NONE
         );
+        boolean hasQueryPlanIR = request.source() != null && request.source().queryPlanIR() != null;
         @SuppressWarnings("unchecked")
-        SearchExecEngine searchExecEngine = indexer instanceof CompositeEngine ? ((CompositeEngine) indexer).getPrimaryReadEngine() : null;
+        SearchExecEngine searchExecEngine = (indexer instanceof CompositeEngine && hasQueryPlanIR) ? ((CompositeEngine) indexer).getPrimaryReadEngine() : null;
         SearchContext context = searchExecEngine == null ? originalContext : searchExecEngine.createContext(readerContext, request, shardTarget, task, bigArrays, originalContext, clusterService);
         try {
             if (request.scroll() != null) {

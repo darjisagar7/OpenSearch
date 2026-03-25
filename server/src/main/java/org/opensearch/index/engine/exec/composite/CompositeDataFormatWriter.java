@@ -91,10 +91,12 @@ public class CompositeDataFormatWriter implements Writer<CompositeDataFormatWrit
 
     @Override
     public WriteResult updateDocumentToWriter(Term uid, CompositeDocumentInput d) throws IOException {
+        logger.info("[COMPOSITE_WRITER] updateDocument uid=[{}] routing to {} format(s)", uid, writers.size());
         WriteResult writeResult = null;
         List<DocumentInput<?>> inputList = d.getChildInputs();
         for (int i = 0; i < writers.size(); i++) {
             Map.Entry<DataFormat, Writer<DocumentInput<?>>> entry = writers.get(i);
+            logger.info("[COMPOSITE_WRITER]   delegating update to format=[{}]", entry.getKey().name());
             writeResult = entry.getValue().updateDocumentToWriter(uid, inputList.get(i));
         }
         return writeResult;
@@ -102,7 +104,9 @@ public class CompositeDataFormatWriter implements Writer<CompositeDataFormatWrit
 
     @Override
     public void deleteDocumentFromWriter(Term uid) throws IOException {
+        logger.info("[COMPOSITE_WRITER] deleteDocument uid=[{}] routing to {} format(s)", uid, writers.size());
         for (Map.Entry<DataFormat, Writer<DocumentInput<?>>> entry : writers) {
+            logger.info("[COMPOSITE_WRITER]   delegating delete to format=[{}]", entry.getKey().name());
             entry.getValue().deleteDocumentFromWriter(uid);
         }
     }
