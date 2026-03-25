@@ -1562,4 +1562,9 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
             throw new EngineException(shardId, "CompositeEngine committer is not a LuceneExecutionEngine");
         }
     }
+
+    // visible for testing
+    public LuceneExecutionEngine getLuceneExecutionEngine() {
+        return (LuceneExecutionEngine) compositeEngineCommitter;
+    }
 }

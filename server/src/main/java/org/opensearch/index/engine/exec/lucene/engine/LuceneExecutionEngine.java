@@ -27,6 +27,7 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.NIOFSDirectory;
 import org.apache.lucene.util.PrintStreamInfoStream;
 import org.opensearch.common.concurrent.GatedCloseable;
+import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
 import org.opensearch.common.logging.Loggers;
 import org.opensearch.common.util.io.IOUtils;
 import org.opensearch.index.IndexSettings;
@@ -233,6 +234,16 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
         return luceneCommitEngine.resolveDocVersionFromIndex(uid, loadSeqNo);
     }
 
+    // --- Reader access (for search verification) ---
+
+    public OpenSearchDirectoryReader acquireReader() throws IOException {
+        return luceneCommitEngine.acquireReader();
+    }
+
+    public void releaseReader(OpenSearchDirectoryReader reader) throws IOException {
+        luceneCommitEngine.releaseReader(reader);
+    }
+
     // --- Committer delegation ---
 
     @Override
@@ -267,6 +278,8 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
 
     @Override
     public void close() throws IOException {
-        IOUtils.close(luceneCommitEngine.acquireSafeIndexCommit());
+        if (luceneCommitEngine != null) {
+            luceneCommitEngine.close();
+        }
     }
 }

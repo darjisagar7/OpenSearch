@@ -51,6 +51,7 @@ import org.opensearch.index.mapper.SeqNoFieldMapper;
 import org.opensearch.index.store.Store;
 import org.opensearch.index.translog.TranslogDeletionPolicy;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Base64;
@@ -62,7 +63,7 @@ import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 
-public class LuceneCommitEngine {
+public class LuceneCommitEngine implements Closeable {
 
     private final Logger logger;
     private IndexWriter indexWriter;
@@ -165,6 +166,14 @@ public class LuceneCommitEngine {
         }
     }
 
+    public OpenSearchDirectoryReader acquireReader() throws IOException {
+        return readerManager.acquire();
+    }
+
+    public void releaseReader(OpenSearchDirectoryReader reader) throws IOException {
+        readerManager.release(reader);
+    }
+
     public void logDocCount(String context) throws IOException {
         final OpenSearchDirectoryReader reader = readerManager.acquire();
         try {
@@ -262,5 +271,10 @@ public class LuceneCommitEngine {
         } catch (Exception e) {
             throw new EngineException(store.shardId(), "Failed to acquire safe index commit", e);
         }
+    }
+
+    @Override
+    public void close() throws IOException {
+        IOUtils.close(readerManager, indexWriter);
     }
 }
