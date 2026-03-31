@@ -104,7 +104,12 @@ public class LuceneCommitEngine implements Closeable {
                 Path writerDir = Path.of(indexWriter.getDirectory().toString()).toAbsolutePath().normalize();
                 Path segmentDir = Path.of(wfs.getDirectory()).toAbsolutePath().normalize();
                 if (!writerDir.equals(segmentDir)) {
-                    indexWriter.addIndexes(NIOFSDirectory.open(segmentDir));
+                    NIOFSDirectory segDir = new NIOFSDirectory(segmentDir);
+                    try {
+                        indexWriter.addIndexes(new HardlinkCopyDirectoryWrapper(segDir));
+                    } finally {
+                        segDir.close();
+                    }
                 }
                 wfs.setRefreshed();
             } catch (IOException e) {
@@ -112,18 +117,20 @@ public class LuceneCommitEngine implements Closeable {
             }
         }
 
-        // Apply staged cross-writer deletes: delete old versions by _id where _seq_no < update's seqNo.
-        // The _id TermQuery narrows candidates to ~2 docs, so the doc-values range check is negligible.
+        // Apply staged cross-writer deletes as a single batch to avoid repeated
+        // processEvents/applyQueryDeletes passes inside IndexWriter (O(n^2) when called per-entry).
         if (!pendingDeletes.isEmpty()) {
             logger.info("[COMMIT_DEBUG] Applying {} staged deletes after addIndexes", pendingDeletes.size());
-            for (LuceneWriter.DeleteEntry entry : pendingDeletes) {
-                Query deleteQuery = new BooleanQuery.Builder()
+            Query[] deleteQueries = new Query[pendingDeletes.size()];
+            for (int i = 0; i < pendingDeletes.size(); i++) {
+                LuceneWriter.DeleteEntry entry = pendingDeletes.get(i);
+                deleteQueries[i] = new BooleanQuery.Builder()
                     .add(new TermQuery(entry.getTerm()), BooleanClause.Occur.MUST)
                     .add(NumericDocValuesField.newSlowRangeQuery(
                         SeqNoFieldMapper.NAME, Long.MIN_VALUE, entry.getSeqNo() - 1), BooleanClause.Occur.MUST)
                     .build();
-                indexWriter.deleteDocuments(deleteQuery);
             }
+            indexWriter.deleteDocuments(deleteQueries);
             pendingDeletes.clear();
         }
 

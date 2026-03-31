@@ -414,7 +414,7 @@ public final class LiveVersionMap implements ReferenceManager.RefreshListener, A
     /**
      * Try to prune tombstones whose timestamp is less than maxTimestampToPrune and seqno at most the maxSeqNoToPrune.
      */
-    void pruneTombstones(long maxTimestampToPrune, long maxSeqNoToPrune) {
+    public void pruneTombstones(long maxTimestampToPrune, long maxSeqNoToPrune) {
         for (Map.Entry<BytesRef, DeleteVersionValue> entry : tombstones.entrySet()) {
             // we do check before we actually lock the key - this way we don't need to acquire the lock for tombstones that are not
             // prune-able. If the tombstone changes concurrently we will re-read and step out below since if we can't collect it now w
@@ -460,7 +460,7 @@ public final class LiveVersionMap implements ReferenceManager.RefreshListener, A
      * Returns how much RAM would be freed up by refreshing. This is {@link #ramBytesUsed} except does not include tombstones because they
      * don't clear on refresh.
      */
-    long ramBytesUsedForRefresh() {
+    public long ramBytesUsedForRefresh() {
         return maps.current.ramBytesUsed.get();
     }
 
@@ -468,7 +468,7 @@ public final class LiveVersionMap implements ReferenceManager.RefreshListener, A
      * Returns how much RAM is current being freed up by refreshing.  This is {@link #ramBytesUsed()}
      * except does not include tombstones because they don't clear on refresh.
      */
-    long getRefreshingBytes() {
+    public long getRefreshingBytes() {
         return maps.old.ramBytesUsed.get();
     }
 

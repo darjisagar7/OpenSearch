@@ -190,6 +190,7 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
     private IndexWriterConfig getIndexWriterConfig(long writerGeneration, EngineConfig engineConfig) {
         IndexWriterConfig indexWriterConfig = new IndexWriterConfig();
         indexWriterConfig.setOpenMode(IndexWriterConfig.OpenMode.CREATE);
+        indexWriterConfig.setRAMBufferSizeMB(engineConfig.getIndexingBufferSize().getMbFrac());
         indexWriterConfig.setIndexSort(new Sort(new SortField(ROW_ID, SortField.Type.LONG)));
         indexWriterConfig.setCodec(new LuceneWriterCodec(engineConfig.getCodec().getName(), engineConfig.getCodec(), writerGeneration));
         MergePolicy mergePolicy = indexWriterConfig.getMergePolicy();

@@ -2086,13 +2086,44 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             final boolean hasRefreshPending;
             if (readerContext != null) {
                 indexService = readerContext.indexService();
-                canMatchSearcher = (Engine.Searcher) readerContext.acquireSearcher(Engine.CAN_MATCH_SEARCH_SOURCE);
+                IndexShard indexShard = readerContext.indexShard();
+                if (indexShard.indexSettings().isOptimizedIndex()) {
+                    CompositeEngine compositeEngine = indexShard.getIndexingExecutionCoordinator();
+                    org.opensearch.common.lucene.index.OpenSearchDirectoryReader luceneReader = compositeEngine
+                        .getLuceneExecutionEngine()
+                        .acquireReader();
+                    canMatchSearcher = new Engine.Searcher(
+                        Engine.CAN_MATCH_SEARCH_SOURCE,
+                        luceneReader,
+                        indexShard.getEngine().config().getSimilarity(),
+                        indexShard.getEngine().config().getQueryCache(),
+                        indexShard.getEngine().config().getQueryCachingPolicy(),
+                        () -> compositeEngine.getLuceneExecutionEngine().releaseReader(luceneReader)
+                    );
+                } else {
+                    canMatchSearcher = (Engine.Searcher) readerContext.acquireSearcher(Engine.CAN_MATCH_SEARCH_SOURCE);
+                }
                 hasRefreshPending = false;
             } else {
                 indexService = indicesService.indexServiceSafe(request.shardId().getIndex());
                 IndexShard indexShard = indexService.getShard(request.shardId().getId());
                 hasRefreshPending = indexShard.hasRefreshPending() && checkRefreshPending;
-                canMatchSearcher = indexShard.acquireSearcher(Engine.CAN_MATCH_SEARCH_SOURCE);
+                if (indexShard.indexSettings().isOptimizedIndex()) {
+                    CompositeEngine compositeEngine = indexShard.getIndexingExecutionCoordinator();
+                    org.opensearch.common.lucene.index.OpenSearchDirectoryReader luceneReader = compositeEngine
+                        .getLuceneExecutionEngine()
+                        .acquireReader();
+                    canMatchSearcher = new Engine.Searcher(
+                        Engine.CAN_MATCH_SEARCH_SOURCE,
+                        luceneReader,
+                        indexShard.getEngine().config().getSimilarity(),
+                        indexShard.getEngine().config().getQueryCache(),
+                        indexShard.getEngine().config().getQueryCachingPolicy(),
+                        () -> compositeEngine.getLuceneExecutionEngine().releaseReader(luceneReader)
+                    );
+                } else {
+                    canMatchSearcher = indexShard.acquireSearcher(Engine.CAN_MATCH_SEARCH_SOURCE);
+                }
             }
 
             try (Releasable ignored2 = canMatchSearcher) {

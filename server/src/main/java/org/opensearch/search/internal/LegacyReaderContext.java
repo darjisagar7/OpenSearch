@@ -36,6 +36,7 @@ import org.opensearch.index.IndexService;
 import org.opensearch.index.engine.Engine;
 import org.opensearch.index.engine.EngineSearcher;
 import org.opensearch.index.engine.EngineSearcherSupplier;
+import org.opensearch.index.engine.exec.coord.CompositeEngine;
 import org.opensearch.index.shard.IndexShard;
 import org.opensearch.search.RescoreDocIds;
 import org.opensearch.search.dfs.AggregatedDfs;
@@ -72,7 +73,27 @@ public class LegacyReaderContext extends ReaderContext {
             // to reuse the searcher created on the request that initialized the scroll.
             // This ensures that we wrap the searcher's reader with the user's permissions
             // when they are available.
-            final Engine.Searcher delegate = (Engine.Searcher) searcherSupplier.acquireSearcher("search");
+            final Engine.Searcher delegate;
+            if (indexShard.indexSettings().isOptimizedIndex()) {
+                try {
+                    CompositeEngine compositeEngine = indexShard.getIndexingExecutionCoordinator();
+                    org.opensearch.common.lucene.index.OpenSearchDirectoryReader luceneReader = compositeEngine
+                        .getLuceneExecutionEngine()
+                        .acquireReader();
+                    delegate = new Engine.Searcher(
+                        "search",
+                        luceneReader,
+                        indexShard.getEngine().config().getSimilarity(),
+                        indexShard.getEngine().config().getQueryCache(),
+                        indexShard.getEngine().config().getQueryCachingPolicy(),
+                        () -> compositeEngine.getLuceneExecutionEngine().releaseReader(luceneReader)
+                    );
+                } catch (java.io.IOException e) {
+                    throw new org.opensearch.OpenSearchException("Failed to acquire Lucene reader for optimized index", e);
+                }
+            } else {
+                delegate = (Engine.Searcher) searcherSupplier.acquireSearcher("search");
+            }
             addOnClose(delegate);
             // wrap the searcher so that closing is a noop, the actual closing happens when this context is closed
             this.searcher = new Engine.Searcher(

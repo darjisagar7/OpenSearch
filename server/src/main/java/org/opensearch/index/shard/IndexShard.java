@@ -1510,6 +1510,10 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
      * Returns how many bytes we are currently moving from heap to disk
      */
     public long getWritingBytes() {
+        if (indexSettings.isOptimizedIndex()) {
+            CompositeEngine compositeEngine = getIndexingExecutionCoordinator();
+            return compositeEngine != null ? compositeEngine.getWritingBytes() : 0;
+        }
         Engine engine = getEngineOrNull();
         if (engine == null) {
             return 0;

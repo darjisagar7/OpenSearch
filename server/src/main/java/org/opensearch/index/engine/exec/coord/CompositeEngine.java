@@ -168,6 +168,7 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
     private final Committer compositeEngineCommitter;
     private final TranslogManager translogManager;
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
+    private final AtomicBoolean refreshInProgress = new AtomicBoolean(false);
     private final SetOnce<Exception> failedEngine = new SetOnce<>();
     private final List<ReferenceManager.RefreshListener> refreshListeners = new ArrayList<>();
     private final List<CatalogSnapshotAwareRefreshListener> catalogSnapshotAwareRefreshListeners = new ArrayList<>();
@@ -217,6 +218,7 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
     private final IndexingStrategyPlanner indexingStrategyPlanner;
     private final DeletionStrategyPlanner deletionStrategyPlanner;
     private final LiveVersionMap versionMap;
+    private volatile long lastDeleteVersionPruneTimeMSec;
     protected final CatalogSnapshotManager catalogSnapshotManager;
     private ReleasableRef<CatalogSnapshot> lastCommitedCatalogSnapshotRef;
     private final EventListener eventListener;
@@ -858,6 +860,15 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
     }
 
     public synchronized void refresh(String source) throws EngineException {
+        refreshInProgress.set(true);
+        try {
+            doRefresh(source);
+        } finally {
+            refreshInProgress.set(false);
+        }
+    }
+
+    private void doRefresh(String source) throws EngineException {
         final long localCheckpointBeforeRefresh = localCheckpointTracker.getProcessedCheckpoint();
         boolean refreshed = false;
         try (CompositeEngine.ReleasableRef<CatalogSnapshot> catalogSnapshotReleasableRef = catalogSnapshotManager.acquireSnapshot()) {
@@ -892,6 +903,9 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
             + localCheckpointBeforeRefresh
             + " refresh_checkpoint="
             + lastRefreshedCheckpoint();
+        // Prune tombstones after refresh, same as InternalEngine — tombstones accumulate in
+        // LiveVersionMap and are not cleaned during refresh (only expired via gc_deletes).
+        maybePruneDeletes();
     }
 
     private void invokeRefreshListeners(boolean didRefresh) {
@@ -999,7 +1013,7 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
                 assert delete.seqNo() >= 0 : "ops should have an assigned seq no.; origin: " + delete.origin();
 
                 if (plan.executeOpOnEngine || plan.addStaleOpToEngine) {
-                    logger.info("[COMPOSITE_FLOW] DELETE doc id=[{}] seqNo=[{}] version=[{}] uid=[{}]",
+                    logger.trace("[COMPOSITE_FLOW] DELETE doc id=[{}] seqNo=[{}] version=[{}] uid=[{}]",
                         delete.id(), delete.seqNo(), plan.version, delete.uid());
                     // Get a writer from the pool, record the delete, release it back
                     CompositeDataFormatWriter writer = (CompositeDataFormatWriter) engine.createCompositeWriter();
@@ -1095,7 +1109,11 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
 
     @Override
     public long getIndexBufferRAMBytesUsed() {
-        return 0;
+        return versionMap.ramBytesUsedForRefresh();
+    }
+
+    public long getWritingBytes() {
+        return versionMap.getRefreshingBytes();
     }
 
     @Override
@@ -1156,7 +1174,9 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
 
     @Override
     public void writeIndexingBuffer() throws EngineException {
-        refresh("write indexing buffer");
+        if (!refreshInProgress.get()) {
+            refresh("write indexing buffer");
+        }
     }
 
     @Override
@@ -1249,9 +1269,26 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
         // We don't have to do this here; we do it defensively to make sure that even if wall clock time is misbehaving
         // (e.g., moves backwards) we will at least still sometimes prune deleted tombstones:
         if (engineConfig.isEnableGcDeletes()) {
-            // TODO - pruneDeletedTombstones();
+            pruneDeletedTombstones();
         }
 
+    }
+
+    private void pruneDeletedTombstones() {
+        final long timeMSec = engineConfig.getThreadPool().relativeTimeInMillis();
+        final long maxTimestampToPrune = timeMSec - engineConfig.getIndexSettings().getGcDeletesInMillis();
+        versionMap.pruneTombstones(maxTimestampToPrune, localCheckpointTracker.getProcessedCheckpoint());
+        lastDeleteVersionPruneTimeMSec = timeMSec;
+    }
+
+    private void maybePruneDeletes() {
+        // It's expensive to prune because we walk the deletes map acquiring dirtyLock for each uid so we only do it
+        // every 1/4 of gcDeletesInMillis:
+        if (engineConfig.isEnableGcDeletes()
+            && engineConfig.getThreadPool().relativeTimeInMillis() - lastDeleteVersionPruneTimeMSec > engineConfig.getIndexSettings()
+                .getGcDeletesInMillis() * 0.25) {
+            pruneDeletedTombstones();
+        }
     }
 
     @Override
@@ -1285,7 +1322,7 @@ public class CompositeEngine implements LifecycleAware, Closeable, Indexer, Chec
                         .collect(Collectors.toMap(e -> extractSegmentName.apply(e.getKey()), e -> e.getValue().getSize())));
                 }
             });
-            stats.addVersionMapMemoryInBytes(0);
+            stats.addVersionMapMemoryInBytes(versionMap.ramBytesUsed());
             stats.addIndexWriterMemoryInBytes(0);
             return stats;
         } catch (IOException e) {
