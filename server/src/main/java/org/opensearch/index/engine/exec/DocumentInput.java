@@ -8,7 +8,9 @@
 
 package org.opensearch.index.engine.exec;
 
+import org.apache.lucene.index.Term;
 import org.opensearch.common.annotation.ExperimentalApi;
+import org.opensearch.index.engine.exec.composite.CompositeDataFormatWriter;
 import org.opensearch.index.mapper.MappedFieldType;
 
 import java.io.IOException;
@@ -28,7 +30,9 @@ public interface DocumentInput<T> extends AutoCloseable {
 
     T getFinalInput();
 
-    WriteResult addToWriter() throws IOException;
+//    WriteResult addToWriter() throws IOException;
+
+//    WriteResult updateDocumentToWriter(Term uid) throws IOException;
 
     default void setVersion(long version) {
         // Default no-op implementations, override as needed
@@ -54,4 +58,6 @@ public interface DocumentInput<T> extends AutoCloseable {
     default DataFormat getDataFormat() {
         return null;
     }
+
+    CompositeDataFormatWriter getWriter();
 }

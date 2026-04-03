@@ -85,6 +85,11 @@ testClusters {
         plugin(project.layout.file(project.provider { config.singleFile }))
       }
 
+      // Auto-add analytics-engine dependency when engine-datafusion is requested
+      if (installedPlugins.contains('engine-datafusion') && !installedPlugins.contains('analytics-engine')) {
+        installedPlugins.add(0, 'analytics-engine')
+      }
+
       for (String p : installedPlugins) {
         // check if its a local plugin first
         if (project.findProject(':plugins:' + p) != null) {

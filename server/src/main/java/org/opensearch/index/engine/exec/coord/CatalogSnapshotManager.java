@@ -141,14 +141,21 @@ public class CatalogSnapshotManager {
             segmentList.add(0, segmentToAdd);
         }
 
-        // Commit new catalog snapshot
-        advanceCatalogSnapshot(segmentList);
+        // Commit new catalog snapshot — skip addLuceneIndexes since the commit writer
+        // already has the data in the old segments and TieredMergePolicy will merge them.
+        advanceCatalogSnapshot(segmentList, false);
     }
 
     private synchronized void advanceCatalogSnapshot(List<Segment> refreshedSegments) throws IOException {
+        advanceCatalogSnapshot(refreshedSegments, true);
+    }
+
+    private synchronized void advanceCatalogSnapshot(List<Segment> refreshedSegments, boolean copyToCommitWriter) throws IOException {
         logger.debug("[COMPOSITE_DEBUG] advanceCatalogSnapshot: previous id={}, version={}, old segment count={}",
             latestCatalogSnapshot.getId(), latestCatalogSnapshot.getVersion(), latestCatalogSnapshot.getSegments().size());
-        compositeEngineCommitter.addLuceneIndexes(refreshedSegments);
+        if (copyToCommitWriter) {
+            compositeEngineCommitter.addLuceneIndexes(refreshedSegments);
+        }
         CompositeEngineCatalogSnapshot cecs = new CompositeEngineCatalogSnapshot(
             latestCatalogSnapshot.getId() + 1,
             latestCatalogSnapshot.getVersion() + 1,

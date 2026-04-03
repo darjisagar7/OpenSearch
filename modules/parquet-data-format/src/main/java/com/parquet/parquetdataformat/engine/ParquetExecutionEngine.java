@@ -65,7 +65,7 @@ import static com.parquet.parquetdataformat.engine.ParquetDataFormat.PARQUET_DAT
  * <p>The engine is designed to work with {@link ParquetDocumentInput} for document
  * processing and integrates seamlessly with OpenSearch's execution framework.
  */
-public class ParquetExecutionEngine implements IndexingExecutionEngine<ParquetDataFormat> {
+public class ParquetExecutionEngine implements IndexingExecutionEngine<ParquetDataFormat, ParquetDocumentInput> {
 
     private static final Logger logger = LogManager.getLogger(ParquetExecutionEngine.class);
 

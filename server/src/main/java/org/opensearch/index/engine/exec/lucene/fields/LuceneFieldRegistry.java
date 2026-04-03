@@ -16,6 +16,7 @@ import org.opensearch.index.engine.exec.lucene.fields.data.metadata.IdLuceneFiel
 import org.opensearch.index.engine.exec.lucene.fields.data.metadata.IgnoredLuceneField;
 import org.opensearch.index.engine.exec.lucene.fields.data.metadata.RoutingLuceneField;
 import org.opensearch.index.engine.exec.lucene.fields.data.metadata.SizeLuceneField;
+import org.opensearch.index.engine.exec.lucene.fields.data.metadata.VersionDocValuesField;
 import org.opensearch.index.engine.exec.lucene.fields.data.number.ByteLuceneField;
 import org.opensearch.index.engine.exec.lucene.fields.data.number.DocCountLuceneField;
 import org.opensearch.index.engine.exec.lucene.fields.data.number.DoubleLuceneField;
@@ -101,9 +102,9 @@ public class LuceneFieldRegistry {
         FIELD_REGISTRY.put(IgnoredFieldMapper.CONTENT_TYPE, new IgnoredLuceneField());
         FIELD_REGISTRY.put("_size", new SizeLuceneField());
         FIELD_REGISTRY.put(DocCountFieldMapper.CONTENT_TYPE, new DocCountLuceneField());
-        FIELD_REGISTRY.put(SeqNoFieldMapper.CONTENT_TYPE, new LongLuceneField());
-        FIELD_REGISTRY.put(VersionFieldMapper.CONTENT_TYPE, new LongLuceneField());
-        FIELD_REGISTRY.put(SeqNoFieldMapper.PRIMARY_TERM_NAME, new LongLuceneField());
+        FIELD_REGISTRY.put(SeqNoFieldMapper.CONTENT_TYPE, new VersionDocValuesField());
+        FIELD_REGISTRY.put(VersionFieldMapper.CONTENT_TYPE, new VersionDocValuesField());
+        FIELD_REGISTRY.put(SeqNoFieldMapper.PRIMARY_TERM_NAME, new VersionDocValuesField());
     }
 
     /**

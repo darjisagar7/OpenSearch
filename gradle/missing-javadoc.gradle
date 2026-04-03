@@ -163,6 +163,11 @@ configure([
   project(":test:logger-usage"),
   project(":libs:opensearch-vectorized-exec-spi"), // TODO
   project(":plugins:engine-datafusion"), //TODO
+  project(":sandbox:libs:analytics-framework"),
+  project(":sandbox:plugins:analytics-backend-lucene"),
+  project(":sandbox:plugins:analytics-backend-datafusion"),
+  project(":sandbox:plugins:analytics-engine"),
+  project(":sandbox:plugins:test-ppl-frontend"),
   project(":server"),
   project(":modules:parquet-data-format"),
   project(":modules:parquet-data-format:benchmarks")

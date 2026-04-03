@@ -8,8 +8,10 @@
 
 package org.opensearch.index.engine.exec.commit;
 
+import org.apache.lucene.index.Term;
 import org.opensearch.index.engine.CommitStats;
 import org.opensearch.index.engine.SafeCommitInfo;
+import org.opensearch.index.engine.VersionValue;
 import org.opensearch.index.engine.exec.coord.CatalogSnapshot;
 import org.opensearch.index.engine.exec.coord.Segment;
 
@@ -29,4 +31,6 @@ public interface Committer extends Closeable {
     CommitStats getCommitStats();
 
     SafeCommitInfo getSafeCommitInfo();
+
+    VersionValue resolveDocVersionFromIndex(Term uid, boolean loadSeqNo) throws IOException;
 }

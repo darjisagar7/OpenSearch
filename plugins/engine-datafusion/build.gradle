@@ -194,6 +194,7 @@ bundlePlugin {
     exclude 'jts-core-*.jar'
     exclude 'jackson-core-*.jar'
     exclude 'error_prone_annotations-*.jar'
+    exclude 'commons-io-*.jar'
 }
 
 // Ensure native library is built before Java compilation

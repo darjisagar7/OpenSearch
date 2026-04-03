@@ -43,7 +43,16 @@ public interface EngineContext {
     class Holder {
         private static volatile EngineContext INSTANCE;
 
+        /** Default constructor. */
+        Holder() {}
+
+        /**
+         * Sets the global engine context instance.
+         * @param ctx the engine context
+         */
         public static void set(EngineContext ctx) { INSTANCE = ctx; }
+
+        /** Returns the global engine context instance. */
         public static EngineContext get() { return INSTANCE; }
     }
 }

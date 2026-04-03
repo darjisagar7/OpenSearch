@@ -13,19 +13,21 @@ import org.apache.logging.log4j.Logger;
 import org.apache.lucene.index.FilterMergePolicy;
 import org.apache.lucene.index.IndexCommit;
 import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.MergePolicy;
 import org.apache.lucene.index.MergeTrigger;
-import org.apache.lucene.index.NoMergePolicy;
+import org.apache.lucene.index.TieredMergePolicy;
 import org.apache.lucene.index.SegmentCommitInfo;
 import org.apache.lucene.index.SegmentInfos;
-import org.apache.lucene.index.SerialMergeScheduler;
+import org.apache.lucene.index.ConcurrentMergeScheduler;
 import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.SortField;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.NIOFSDirectory;
 import org.apache.lucene.util.PrintStreamInfoStream;
 import org.opensearch.common.concurrent.GatedCloseable;
+import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
 import org.opensearch.common.logging.Loggers;
 import org.opensearch.common.util.io.IOUtils;
 import org.opensearch.index.IndexSettings;
@@ -34,6 +36,7 @@ import org.opensearch.index.engine.CommitStats;
 import org.opensearch.index.engine.EngineConfig;
 import org.opensearch.index.engine.EngineException;
 import org.opensearch.index.engine.SafeCommitInfo;
+import org.opensearch.index.engine.VersionValue;
 import org.opensearch.index.engine.exec.DataFormat;
 import org.opensearch.index.engine.exec.DocumentInput;
 import org.opensearch.index.engine.exec.EngineRole;
@@ -50,6 +53,7 @@ import org.opensearch.index.engine.exec.coord.CatalogSnapshot;
 import org.opensearch.index.engine.exec.coord.Segment;
 import org.opensearch.index.engine.exec.lucene.LuceneDataFormat;
 import org.opensearch.index.engine.exec.lucene.fields.LuceneFieldRegistry;
+import org.opensearch.index.engine.exec.lucene.writer.LuceneDocumentInput;
 import org.opensearch.index.engine.exec.lucene.writer.LuceneWriter;
 import org.opensearch.index.engine.exec.lucene.writer.LuceneWriterCodec;
 import org.opensearch.index.mapper.MapperService;
@@ -68,7 +72,7 @@ import java.util.function.LongSupplier;
 
 import static org.opensearch.index.engine.exec.composite.CompositeDataFormatWriter.ROW_ID;
 
-public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneDataFormat>, Committer {
+public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneDataFormat, LuceneDocumentInput>, Committer {
 
     private final MapperService mapperService;
     private final ShardPath shardPath;
@@ -108,9 +112,8 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
         if (primaryMode) {
             IndexWriterConfig iwc = new IndexWriterConfig();
             iwc.setIndexDeletionPolicy(combinedDeletionPolicy);
-            iwc.setMergePolicy(NoMergePolicy.INSTANCE);
-            iwc.setMergeScheduler(new SerialMergeScheduler());
-            iwc.setIndexSort(new Sort(new SortField(ROW_ID, SortField.Type.LONG)));
+            iwc.setMergePolicy(new TieredMergePolicy());
+            iwc.setMergeScheduler(new ConcurrentMergeScheduler());
             iwc.setParentField(null);
 
             indexWriter = new IndexWriter(store.directory(), iwc);
@@ -125,7 +128,7 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
     }
 
     @Override
-    public Writer<? extends DocumentInput<?>> createWriter(long writerGeneration) throws IOException {
+    public Writer<LuceneDocumentInput> createWriter(long writerGeneration) throws IOException {
 
         Path tmpDirectoryPath = shardPath.getDataPath().resolve("tmp");
         Files.createDirectories(tmpDirectoryPath);
@@ -187,6 +190,7 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
     private IndexWriterConfig getIndexWriterConfig(long writerGeneration, EngineConfig engineConfig) {
         IndexWriterConfig indexWriterConfig = new IndexWriterConfig();
         indexWriterConfig.setOpenMode(IndexWriterConfig.OpenMode.CREATE);
+        indexWriterConfig.setRAMBufferSizeMB(engineConfig.getIndexingBufferSize().getMbFrac());
         indexWriterConfig.setIndexSort(new Sort(new SortField(ROW_ID, SortField.Type.LONG)));
         indexWriterConfig.setCodec(new LuceneWriterCodec(engineConfig.getCodec().getName(), engineConfig.getCodec(), writerGeneration));
         MergePolicy mergePolicy = indexWriterConfig.getMergePolicy();
@@ -219,11 +223,34 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
 
     }
 
+    @Override
+    public void handleDeletesFromWriter(Writer<?> writer) throws IOException {
+        List<LuceneWriter.DeleteEntry> entries = ((LuceneWriter) writer).getDeleteEntries();
+        logger.trace("[COMMIT_DEBUG] handleDeletesFromWriter: staging {} delete entries from child writer", entries.size());
+        luceneCommitEngine.stageDeletes(entries);
+    }
+
+    @Override
+    public VersionValue resolveDocVersionFromIndex(Term uid, boolean loadSeqNo) throws IOException {
+        return luceneCommitEngine.resolveDocVersionFromIndex(uid, loadSeqNo);
+    }
+
+    // --- Reader access (for search verification) ---
+
+    public OpenSearchDirectoryReader acquireReader() throws IOException {
+        return luceneCommitEngine.acquireReader();
+    }
+
+    public void releaseReader(OpenSearchDirectoryReader reader) throws IOException {
+        luceneCommitEngine.releaseReader(reader);
+    }
+
     // --- Committer delegation ---
 
     @Override
     public void addLuceneIndexes(List<Segment> segments) throws IOException {
         luceneCommitEngine.addLuceneIndexes(segments);
+        luceneCommitEngine.logDocCount("After addLuceneIndexes:");
     }
 
     @Override
@@ -252,6 +279,8 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
 
     @Override
     public void close() throws IOException {
-        IOUtils.close(luceneCommitEngine.acquireSafeIndexCommit());
+        if (luceneCommitEngine != null) {
+            luceneCommitEngine.close();
+        }
     }
 }

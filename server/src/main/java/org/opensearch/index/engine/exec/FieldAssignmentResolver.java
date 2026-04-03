@@ -63,9 +63,14 @@ public final class FieldAssignmentResolver {
             perFormatCaps.put(format, new HashMap<>());
         }
 
+        // Metadata fields that must be resolved through the normal assignment path
+        // _id is required for delete-by-term to work on the parent IndexWriter
+        java.util.Set<String> requiredMetadataFields = java.util.Set.of("_id");
+
         for (MappedFieldType fieldType : fieldTypes) {
-            // Skip internal metadata fields (e.g. _id, _index, _source) — managed by the engine, not data format plugins
-            if (fieldType.typeName().startsWith("_")) {
+            // Skip internal metadata fields (e.g. _index, _source) — managed by the engine, not data format plugins
+            // Exception: _id must pass through so it gets indexed for delete-by-term support
+            if (fieldType.typeName().startsWith("_") && !requiredMetadataFields.contains(fieldType.typeName())) {
                 continue;
             }
             String fieldName = fieldType.name();

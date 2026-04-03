@@ -94,14 +94,15 @@ public class VSRManager implements AutoCloseable {
             // fields should already be populated in vectors via addField() calls.
             // We just need to finalize the document by calling addToWriter()
             // which will increment the row count.
-            WriteResult result = document.addToWriter();
+            // TODO: document.addToWriter() removed — actual write happens in ParquetWriter.addToWriter(documentInput)
+            // WriteResult result = document.addToWriter();
 
             logger.debug("After adding document to {}, row count: {}", fileName, currentVSR.getRowCount());
 
             // Check for VSR rotation AFTER successful document processing
             maybeRotateActiveVSR();
 
-            return result;
+            return null;
         } catch (Exception e) {
             logger.error("Error in addToManagedVSR for {}: {}", fileName, e.getMessage(), e);
             throw new IOException("Failed to add document: " + e.getMessage(), e);

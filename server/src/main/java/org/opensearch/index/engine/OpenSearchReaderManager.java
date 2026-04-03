@@ -50,7 +50,7 @@ import java.io.IOException;
  * @opensearch.internal
  */
 @SuppressForbidden(reason = "reference counting is required here")
-class OpenSearchReaderManager extends ReferenceManager<OpenSearchDirectoryReader> {
+public class OpenSearchReaderManager extends ReferenceManager<OpenSearchDirectoryReader> {
     /**
      * Creates and returns a new OpenSearchReaderManager from the given
      * already-opened {@link OpenSearchDirectoryReader}, stealing
@@ -58,7 +58,7 @@ class OpenSearchReaderManager extends ReferenceManager<OpenSearchDirectoryReader
      *
      * @param reader            the directoryReader to use for future reopens
      */
-    OpenSearchReaderManager(OpenSearchDirectoryReader reader) {
+    public OpenSearchReaderManager(OpenSearchDirectoryReader reader) {
         this.current = reader;
     }
 

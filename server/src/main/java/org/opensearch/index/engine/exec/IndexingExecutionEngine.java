@@ -16,12 +16,12 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
-public interface IndexingExecutionEngine<T extends DataFormat> extends Closeable {
+public interface IndexingExecutionEngine<T extends DataFormat, P extends DocumentInput<?>> extends Closeable {
 
     List<String> supportedFieldTypes(boolean isPrimaryEngine);
 
     // Writer should know it's a primary writer or not?
-    Writer<? extends DocumentInput<?>> createWriter(long writerGeneration)
+    Writer<P> createWriter(long writerGeneration)
         throws IOException; // A writer responsible for data format vended by this engine.
 
     Merger getMerger(); // Merger responsible for merging for specific data format
@@ -46,4 +46,6 @@ public interface IndexingExecutionEngine<T extends DataFormat> extends Closeable
     }
 
     void deleteFiles(Map<String, Collection<String>> filesToDelete) throws IOException;
+
+    default void handleDeletesFromWriter(Writer<?> writer) throws IOException {}
 }

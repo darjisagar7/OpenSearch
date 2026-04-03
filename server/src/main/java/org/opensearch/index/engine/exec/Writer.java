@@ -8,6 +8,8 @@
 
 package org.opensearch.index.engine.exec;
 
+import org.apache.lucene.index.Term;
+
 import java.io.IOException;
 
 public interface Writer<P extends DocumentInput<?>> {
@@ -21,4 +23,10 @@ public interface Writer<P extends DocumentInput<?>> {
     void close() throws IOException;
 
     P newDocumentInput();
+
+    WriteResult addToWriter(P documentInput) throws IOException;
+
+    WriteResult updateDocumentToWriter(Term uid, P documentInput) throws IOException;
+
+    void deleteDocumentFromWriter(Term uid) throws IOException;
 }

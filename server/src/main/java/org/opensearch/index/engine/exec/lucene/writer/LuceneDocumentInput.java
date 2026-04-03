@@ -12,10 +12,13 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.lucene.document.NumericDocValuesField;
 import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.Term;
+import org.apache.lucene.util.BytesRef;
 import org.opensearch.index.engine.exec.DataFormat;
 import org.opensearch.index.engine.exec.DocumentInput;
 import org.opensearch.index.engine.exec.EngineRole;
 import org.opensearch.index.engine.exec.WriteResult;
+import org.opensearch.index.engine.exec.composite.CompositeDataFormatWriter;
 import org.opensearch.index.engine.exec.lucene.fields.LuceneField;
 import org.opensearch.index.engine.exec.lucene.fields.LuceneFieldRegistry;
 import org.opensearch.index.mapper.MappedFieldType;
@@ -82,15 +85,25 @@ public class LuceneDocumentInput implements DocumentInput<ParseContext.Document>
         return document;
     }
 
-    @Override
-    public WriteResult addToWriter() {
-        try {
-            long seqNum = indexWriter.addDocument(document);
-            return new WriteResult(true, null, 1, 1, seqNum);
-        } catch (IOException exception) {
-            return new WriteResult(false, exception, 1, 1, 1);
-        }
-    }
+//    @Override
+//    public WriteResult addToWriter() {
+//        try {
+//            long seqNum = indexWriter.addDocument(document);
+//            return new WriteResult(true, null, 1, 1, seqNum);
+//        } catch (IOException exception) {
+//            return new WriteResult(false, exception, 1, 1, 1);
+//        }
+//    }
+
+//    @Override
+//    public WriteResult updateDocumentToWriter(Term uid) {
+//        try {
+//            long seqNum = indexWriter.updateDocument(uid, document);
+//            return new WriteResult(true, null, 1, 1, seqNum);
+//        } catch (IOException exception) {
+//            return new WriteResult(false, exception, 1, 1, 1);
+//        }
+//    }
 
     @Override
     public DataFormat getDataFormat() {
@@ -102,4 +115,8 @@ public class LuceneDocumentInput implements DocumentInput<ParseContext.Document>
         // no-op, reuse writer
     }
 
+    @Override
+    public CompositeDataFormatWriter getWriter() {
+        return null;
+    }
 }
