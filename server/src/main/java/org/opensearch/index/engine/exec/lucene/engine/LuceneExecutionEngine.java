@@ -17,10 +17,10 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.MergePolicy;
 import org.apache.lucene.index.MergeTrigger;
-import org.apache.lucene.index.NoMergePolicy;
+import org.apache.lucene.index.TieredMergePolicy;
 import org.apache.lucene.index.SegmentCommitInfo;
 import org.apache.lucene.index.SegmentInfos;
-import org.apache.lucene.index.SerialMergeScheduler;
+import org.apache.lucene.index.ConcurrentMergeScheduler;
 import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.SortField;
 import org.apache.lucene.store.Directory;
@@ -112,9 +112,8 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
         if (primaryMode) {
             IndexWriterConfig iwc = new IndexWriterConfig();
             iwc.setIndexDeletionPolicy(combinedDeletionPolicy);
-            iwc.setMergePolicy(NoMergePolicy.INSTANCE);
-            iwc.setMergeScheduler(new SerialMergeScheduler());
-            iwc.setIndexSort(new Sort(new SortField(ROW_ID, SortField.Type.LONG)));
+            iwc.setMergePolicy(new TieredMergePolicy());
+            iwc.setMergeScheduler(new ConcurrentMergeScheduler());
 
             indexWriter = new IndexWriter(store.directory(), iwc);
         }
@@ -226,10 +225,7 @@ public class LuceneExecutionEngine implements IndexingExecutionEngine<LuceneData
     @Override
     public void handleDeletesFromWriter(Writer<?> writer) throws IOException {
         List<LuceneWriter.DeleteEntry> entries = ((LuceneWriter) writer).getDeleteEntries();
-        logger.info("[COMMIT_DEBUG] handleDeletesFromWriter: staging {} delete entries from child writer", entries.size());
-        for (LuceneWriter.DeleteEntry entry : entries) {
-            logger.info("[COMMIT_DEBUG]   staged delete: term=[{}] seqNo=[{}]", entry.getTerm(), entry.getSeqNo());
-        }
+        logger.trace("[COMMIT_DEBUG] handleDeletesFromWriter: staging {} delete entries from child writer", entries.size());
         luceneCommitEngine.stageDeletes(entries);
     }
 
