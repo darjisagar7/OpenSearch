@@ -67,6 +67,7 @@ import org.opensearch.common.time.DateMathParser;
 import org.opensearch.common.util.BigArrays;
 import org.opensearch.common.util.io.IOUtils;
 import org.opensearch.index.IndexSettings;
+import org.opensearch.index.engine.dataformat.FieldTypeCapabilities;
 import org.opensearch.index.fielddata.IndexNumericFieldData;
 import org.opensearch.index.fielddata.LeafNumericFieldData;
 import org.opensearch.index.fielddata.plain.SortedNumericIndexFieldData;
@@ -90,6 +91,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 import static org.apache.lucene.document.LongPoint.pack;
 
@@ -653,5 +655,47 @@ public class DateFieldTypeTests extends FieldTypeTestCase {
             }
         }
         IOUtils.close(reader, w, dir);
+    }
+
+    public void testSupportedCapabilitiesDefault() {
+        DateFieldMapper.DateFieldType ft = new DateFieldMapper.DateFieldType("field");
+        // Default date: searchable=true, stored=false, docValues=true
+        Set<FieldTypeCapabilities.Capability> caps = ft.supportedCapabilities();
+        assertTrue(caps.contains(FieldTypeCapabilities.Capability.POINT_RANGE));
+        assertTrue(caps.contains(FieldTypeCapabilities.Capability.COLUMNAR_STORAGE));
+        assertFalse(caps.contains(FieldTypeCapabilities.Capability.STORED_FIELDS));
+        assertFalse(caps.contains(FieldTypeCapabilities.Capability.FULL_TEXT_SEARCH));
+    }
+
+    public void testSupportedCapabilitiesNoDocValues() {
+        DateFieldMapper.DateFieldType ft = new DateFieldMapper.DateFieldType(
+            "field",
+            true,
+            false,
+            false,
+            DateFieldMapper.getDefaultDateTimeFormatter(),
+            DateFieldMapper.Resolution.MILLISECONDS,
+            null,
+            Collections.emptyMap()
+        );
+        Set<FieldTypeCapabilities.Capability> caps = ft.supportedCapabilities();
+        assertTrue(caps.contains(FieldTypeCapabilities.Capability.POINT_RANGE));
+        assertFalse(caps.contains(FieldTypeCapabilities.Capability.COLUMNAR_STORAGE));
+    }
+
+    public void testSupportedCapabilitiesNotSearchable() {
+        DateFieldMapper.DateFieldType ft = new DateFieldMapper.DateFieldType(
+            "field",
+            false,
+            false,
+            true,
+            DateFieldMapper.getDefaultDateTimeFormatter(),
+            DateFieldMapper.Resolution.MILLISECONDS,
+            null,
+            Collections.emptyMap()
+        );
+        Set<FieldTypeCapabilities.Capability> caps = ft.supportedCapabilities();
+        assertFalse(caps.contains(FieldTypeCapabilities.Capability.POINT_RANGE));
+        assertTrue(caps.contains(FieldTypeCapabilities.Capability.COLUMNAR_STORAGE));
     }
 }

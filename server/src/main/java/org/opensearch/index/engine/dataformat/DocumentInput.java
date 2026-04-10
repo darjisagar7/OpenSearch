@@ -42,4 +42,16 @@ public interface DocumentInput<T> extends AutoCloseable {
      * @param rowId the row ID value
      */
     void setRowId(String rowIdFieldName, long rowId);
+
+    /**
+     * Returns whether this data format supports the given field type.
+     * Defaults to {@code true}; implementations should override to check
+     * against their registered {@link FieldTypeCapabilities}.
+     *
+     * @param fieldType the field type name (e.g. "keyword", "long")
+     * @return true if the field type is supported
+     */
+    default boolean supportsField(String fieldType) {
+        return true;
+    }
 }

@@ -18,6 +18,7 @@ import org.opensearch.plugins.PluginsService;
 import org.opensearch.plugins.SearchBackEndPlugin;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -43,6 +44,12 @@ public class DataFormatRegistry {
     private final Map<String, DataFormat> dataFormats;
 
     /**
+     * Pre-indexed capability lookup: format name → field type name → set of capabilities.
+     * Built once at construction time from each format's {@link DataFormat#supportedFields()}.
+     */
+    private final Map<String, Map<String, Set<FieldTypeCapabilities.Capability>>> capabilitiesByFormat;
+
+    /**
      * Creates a registry by discovering all {@link DataFormatPlugin} and {@link SearchBackEndPlugin} implementations
      * from the given {@link PluginsService}. Registers each data format with its indexing plugin and reader manager factory.
      *
@@ -54,6 +61,7 @@ public class DataFormatRegistry {
         Map<DataFormat, DataFormatPlugin> dataFormatPlugiRegistry = new HashMap<>();
         Map<DataFormat, CheckedFunction<ShardPath, EngineReaderManager<?>, IOException>> readerManagerBuilders = new HashMap<>();
         Map<String, DataFormat> dataFormats = new HashMap<>();
+        Map<String, Map<String, Set<FieldTypeCapabilities.Capability>>> capabilitiesByFormat = new HashMap<>();
 
         for (DataFormatPlugin plugin : pluginsService.filterPlugins(DataFormatPlugin.class)) {
             DataFormat format = plugin.getDataFormat();
@@ -62,6 +70,7 @@ public class DataFormatRegistry {
                 throw new IllegalArgumentException("DataFormat [" + format.name() + "] is already registered by plugin [" + existing + "]");
             }
             dataFormats.put(format.name(), format);
+            capabilitiesByFormat.put(format.name(), buildCapabilityIndex(format));
         }
 
         for (SearchBackEndPlugin<?> plugin : pluginsService.filterPlugins(SearchBackEndPlugin.class)) {
@@ -84,6 +93,18 @@ public class DataFormatRegistry {
         this.dataFormatPluginRegistry = Map.copyOf(dataFormatPlugiRegistry);
         this.dataFormats = Map.copyOf(dataFormats);
         this.readerManagerBuilders = Map.copyOf(readerManagerBuilders);
+        this.capabilitiesByFormat = Map.copyOf(capabilitiesByFormat);
+    }
+
+    /**
+     * Builds an O(1) lookup from field type name to its capabilities for a single data format.
+     */
+    private static Map<String, Set<FieldTypeCapabilities.Capability>> buildCapabilityIndex(DataFormat format) {
+        Map<String, Set<FieldTypeCapabilities.Capability>> index = new HashMap<>();
+        for (FieldTypeCapabilities ftc : format.supportedFields()) {
+            index.put(ftc.fieldType(), ftc.capabilities());
+        }
+        return Collections.unmodifiableMap(index);
     }
 
     /**
@@ -118,6 +139,17 @@ public class DataFormatRegistry {
     }
 
     /**
+     * Returns the pre-indexed capability map for a given data format: field type name → set of capabilities.
+     * Returns an empty map if the format is not registered.
+     *
+     * @param formatName the data format name
+     * @return unmodifiable map of field type name to capabilities
+     */
+    public Map<String, Set<FieldTypeCapabilities.Capability>> getCapabilitiesByFormat(String formatName) {
+        return capabilitiesByFormat.getOrDefault(formatName, Collections.emptyMap());
+    }
+
+    /**
      * Returns all registered data formats that support a specific capability for a field type.
      *
      * @param fieldType the field type name
@@ -125,15 +157,11 @@ public class DataFormatRegistry {
      * @return list of data formats supporting the capability for the field type
      */
     public List<DataFormat> supportsCapability(String fieldType, FieldTypeCapabilities.Capability capability) {
-        return dataFormatPluginRegistry.keySet()
-            .stream()
-            .filter(
-                format -> format.supportedFields()
-                    .stream()
-                    .anyMatch(ftc -> ftc.fieldType().equals(fieldType) && ftc.capabilities().contains(capability))
-            )
-            .sorted(Comparator.comparingLong(DataFormat::priority))
-            .collect(Collectors.toList());
+        return dataFormatPluginRegistry.keySet().stream().filter(format -> {
+            Set<FieldTypeCapabilities.Capability> caps = capabilitiesByFormat.getOrDefault(format.name(), Collections.emptyMap())
+                .get(fieldType);
+            return caps != null && caps.contains(capability);
+        }).sorted(Comparator.comparingLong(DataFormat::priority)).collect(Collectors.toList());
     }
 
     /**
@@ -169,4 +197,5 @@ public class DataFormatRegistry {
         }
         return readerManagers;
     }
+
 }

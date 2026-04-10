@@ -284,7 +284,9 @@ public abstract class FieldMapper extends Mapper implements Cloneable {
      */
     public void parse(ParseContext context) throws IOException {
         try {
-            if (isPluggableDataFormatFeatureEnabled(context)) {
+            if (isPluggableDataFormatFeatureEnabled(context)
+                && context.documentInput() != null
+                && context.documentInput().supportsField(typeName())) {
                 parseCreateFieldForPluggableFormat(context);
             } else {
                 parseCreateField(context);
@@ -387,7 +389,9 @@ public abstract class FieldMapper extends Mapper implements Cloneable {
         FieldNamesFieldType fieldNamesFieldType = context.docMapper().metadataMapper(FieldNamesFieldMapper.class).fieldType();
         if (fieldNamesFieldType != null && fieldNamesFieldType.isEnabled()) {
             for (String fieldName : FieldNamesFieldMapper.extractFieldNames(fieldType().name())) {
-                if (isPluggableDataFormatFeatureEnabled(context)) {
+                if (isPluggableDataFormatFeatureEnabled(context)
+                    && context.documentInput() != null
+                    && context.documentInput().supportsField(fieldNamesFieldType.typeName())) {
                     context.documentInput().addField(fieldNamesFieldType, fieldName);
                 } else {
                     context.doc().add(new Field(FieldNamesFieldMapper.NAME, fieldName, FieldNamesFieldMapper.Defaults.FIELD_TYPE));

@@ -148,6 +148,14 @@ public class ConstantKeywordFieldMapper extends ParametrizedFieldMapper {
         }
 
         @Override
+        public java.util.Set<org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability> supportedCapabilities() {
+            return java.util.Set.of(
+                org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.FULL_TEXT_SEARCH,
+                org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.COLUMNAR_STORAGE
+            );
+        }
+
+        @Override
         protected boolean matches(String pattern, boolean caseInsensitive, QueryShardContext context) {
             return Regex.simpleMatch(pattern, value, caseInsensitive);
         }

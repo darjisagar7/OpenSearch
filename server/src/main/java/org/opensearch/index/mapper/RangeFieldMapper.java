@@ -65,6 +65,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -343,6 +344,23 @@ public class RangeFieldMapper extends ParametrizedFieldMapper {
         @Override
         public String typeName() {
             return rangeType.name;
+        }
+
+        @Override
+        public Set<org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability> supportedCapabilities() {
+            EnumSet<org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability> caps = EnumSet.noneOf(
+                org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.class
+            );
+            if (isSearchable()) {
+                caps.add(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.POINT_RANGE);
+            }
+            if (isStored()) {
+                caps.add(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.STORED_FIELDS);
+            }
+            if (hasDocValues()) {
+                caps.add(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.COLUMNAR_STORAGE);
+            }
+            return Set.copyOf(caps);
         }
 
         public DateFormatter dateTimeFormatter() {

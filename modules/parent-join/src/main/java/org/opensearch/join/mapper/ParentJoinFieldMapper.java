@@ -238,6 +238,14 @@ public final class ParentJoinFieldMapper extends FieldMapper {
         }
 
         @Override
+        public java.util.Set<org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability> supportedCapabilities() {
+            return java.util.Set.of(
+                org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.FULL_TEXT_SEARCH,
+                org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.COLUMNAR_STORAGE
+            );
+        }
+
+        @Override
         public IndexFieldData.Builder fielddataBuilder(String fullyQualifiedIndexName, Supplier<SearchLookup> searchLookup) {
             failIfNoDocValues();
             return new SortedSetOrdinalsIndexFieldData.Builder(name(), CoreValuesSourceType.BYTES);

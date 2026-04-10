@@ -63,6 +63,7 @@ import org.opensearch.core.xcontent.XContentParser.Token;
 import org.opensearch.index.compositeindex.datacube.DimensionType;
 import org.opensearch.index.document.SortedUnsignedLongDocValuesRangeQuery;
 import org.opensearch.index.document.SortedUnsignedLongDocValuesSetQuery;
+import org.opensearch.index.engine.dataformat.FieldTypeCapabilities;
 import org.opensearch.index.fielddata.IndexFieldData;
 import org.opensearch.index.fielddata.IndexNumericFieldData.NumericType;
 import org.opensearch.index.fielddata.plain.SortedNumericIndexFieldData;
@@ -86,10 +87,12 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -1970,6 +1973,21 @@ public class NumberFieldMapper extends ParametrizedFieldMapper {
         @Override
         public String typeName() {
             return type.name;
+        }
+
+        @Override
+        public Set<FieldTypeCapabilities.Capability> supportedCapabilities() {
+            EnumSet<FieldTypeCapabilities.Capability> caps = EnumSet.noneOf(FieldTypeCapabilities.Capability.class);
+            if (isSearchable()) {
+                caps.add(FieldTypeCapabilities.Capability.POINT_RANGE);
+            }
+            if (isStored()) {
+                caps.add(FieldTypeCapabilities.Capability.STORED_FIELDS);
+            }
+            if (hasDocValues()) {
+                caps.add(FieldTypeCapabilities.Capability.COLUMNAR_STORAGE);
+            }
+            return Set.copyOf(caps);
         }
 
         public NumberType numberType() {

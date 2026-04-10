@@ -38,4 +38,12 @@ public class DateNanosParquetField extends ParquetField {
     public FieldType getFieldType() {
         return FieldType.nullable(getArrowType());
     }
+
+    @Override
+    public java.util.Set<org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability> supportedCapabilities() {
+        return java.util.Set.of(
+            org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.COLUMNAR_STORAGE,
+            org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.BLOOM_FILTER
+        );
+    }
 }

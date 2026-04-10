@@ -43,13 +43,18 @@ import org.opensearch.common.util.FeatureFlags;
 import org.opensearch.core.xcontent.ToXContentFragment;
 import org.opensearch.core.xcontent.XContentBuilder;
 import org.opensearch.index.analysis.IndexAnalyzers;
+import org.opensearch.index.engine.dataformat.FieldTypeCapabilities;
 import org.opensearch.index.query.QueryShardContext;
 import org.opensearch.index.similarity.SimilarityProvider;
 import org.opensearch.script.ScriptService;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -72,11 +77,26 @@ public abstract class Mapper implements ToXContentFragment, Iterable<Mapper> {
     public static class BuilderContext {
         private final Settings indexSettings;
         private final ContentPath contentPath;
+        private final List<ResolvedDataFormat> resolvedDataFormats;
 
         public BuilderContext(Settings indexSettings, ContentPath contentPath) {
+            this(indexSettings, contentPath, Collections.emptyList());
+        }
+
+        /**
+         * Creates a BuilderContext with resolved data format capabilities for field-level validation.
+         *
+         * @param indexSettings the index settings
+         * @param contentPath the content path
+         * @param resolvedDataFormats resolved data format capabilities; empty list disables validation
+         *
+         * @opensearch.experimental
+         */
+        public BuilderContext(Settings indexSettings, ContentPath contentPath, List<ResolvedDataFormat> resolvedDataFormats) {
             Objects.requireNonNull(indexSettings, "indexSettings is required");
             this.contentPath = contentPath;
             this.indexSettings = indexSettings;
+            this.resolvedDataFormats = resolvedDataFormats;
         }
 
         public ContentPath path() {
@@ -85,6 +105,16 @@ public abstract class Mapper implements ToXContentFragment, Iterable<Mapper> {
 
         public Settings indexSettings() {
             return this.indexSettings;
+        }
+
+        /**
+         * Returns the resolved data format capabilities for field-level validation.
+         * Empty list means no data format validation is needed.
+         *
+         * @opensearch.experimental
+         */
+        public List<ResolvedDataFormat> resolvedDataFormats() {
+            return resolvedDataFormats;
         }
 
         public Version indexCreatedVersion() {
@@ -96,6 +126,55 @@ public abstract class Mapper implements ToXContentFragment, Iterable<Mapper> {
                 return indexCreatedVersion();
             } else {
                 return defaultValue;
+            }
+        }
+
+        /**
+         * Validates that a field type is compatible with all resolved data formats.
+         * Throws on the first incompatible field.
+         *
+         * @param fieldMapper the field mapper to validate
+         * @throws IllegalArgumentException if the field type is unsupported or missing required capabilities
+         *
+         * @opensearch.experimental
+         */
+        public void validateFieldAgainstDataFormats(FieldMapper fieldMapper) {
+            if (resolvedDataFormats.isEmpty()) {
+                return;
+            }
+            MappedFieldType fieldType = fieldMapper.fieldType();
+            Set<FieldTypeCapabilities.Capability> fieldCaps = fieldType.supportedCapabilities();
+            if (fieldCaps.isEmpty()) {
+                return;
+            }
+            for (ResolvedDataFormat resolved : resolvedDataFormats) {
+                Set<FieldTypeCapabilities.Capability> formatCaps = resolved.capabilitiesByFieldType().get(fieldType.typeName());
+                if (formatCaps == null) {
+                    throw new MapperParsingException(
+                        "field ["
+                            + fieldType.name()
+                            + "] of type ["
+                            + fieldType.typeName()
+                            + "] is not supported by data format ["
+                            + resolved.formatName()
+                            + "]"
+                    );
+                }
+                if (formatCaps.containsAll(fieldCaps) == false) {
+                    EnumSet<FieldTypeCapabilities.Capability> missing = EnumSet.copyOf(fieldCaps);
+                    missing.removeAll(formatCaps);
+                    throw new MapperParsingException(
+                        "field ["
+                            + fieldType.name()
+                            + "] of type ["
+                            + fieldType.typeName()
+                            + "] requires capabilities "
+                            + missing
+                            + " not supported by data format ["
+                            + resolved.formatName()
+                            + "]"
+                    );
+                }
             }
         }
     }

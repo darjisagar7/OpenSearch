@@ -10,10 +10,12 @@ package org.opensearch.parquet.fields;
 
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.FieldType;
+import org.opensearch.index.engine.dataformat.FieldTypeCapabilities;
 import org.opensearch.index.mapper.MappedFieldType;
 import org.opensearch.parquet.vsr.ManagedVSR;
 
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Abstract base class for Parquet field implementations that handle conversion
@@ -53,4 +55,14 @@ public abstract class ParquetField {
 
     /** Returns the Arrow field type with nullability metadata. */
     public abstract FieldType getFieldType();
+
+    /**
+     * Returns the set of {@link FieldTypeCapabilities.Capability} that this Parquet field supports.
+     * Subclasses should override to declare additional capabilities (e.g., {@code BLOOM_FILTER}).
+     *
+     * @return an unmodifiable set of supported capabilities; defaults to {@code COLUMNAR_STORAGE}
+     */
+    public Set<FieldTypeCapabilities.Capability> supportedCapabilities() {
+        return Set.of(FieldTypeCapabilities.Capability.COLUMNAR_STORAGE);
+    }
 }

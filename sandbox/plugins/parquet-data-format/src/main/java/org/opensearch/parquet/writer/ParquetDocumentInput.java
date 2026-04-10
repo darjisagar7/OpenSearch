@@ -10,6 +10,7 @@ package org.opensearch.parquet.writer;
 
 import org.opensearch.index.engine.dataformat.DocumentInput;
 import org.opensearch.index.mapper.MappedFieldType;
+import org.opensearch.parquet.fields.ArrowFieldRegistry;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,6 +36,11 @@ public class ParquetDocumentInput implements DocumentInput<List<FieldValuePair>>
     @Override
     public void addField(MappedFieldType fieldType, Object value) {
         collectedFields.add(new FieldValuePair(fieldType, value));
+    }
+
+    @Override
+    public boolean supportsField(String fieldType) {
+        return ArrowFieldRegistry.getParquetField(fieldType) != null;
     }
 
     @Override

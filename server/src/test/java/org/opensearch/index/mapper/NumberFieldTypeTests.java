@@ -68,6 +68,7 @@ import org.opensearch.core.xcontent.XContentBuilder;
 import org.opensearch.index.IndexSettings;
 import org.opensearch.index.document.SortedUnsignedLongDocValuesRangeQuery;
 import org.opensearch.index.document.SortedUnsignedLongDocValuesSetQuery;
+import org.opensearch.index.engine.dataformat.FieldTypeCapabilities;
 import org.opensearch.index.fielddata.IndexNumericFieldData;
 import org.opensearch.index.mapper.MappedFieldType.Relation;
 import org.opensearch.index.mapper.NumberFieldMapper.NumberFieldType;
@@ -94,6 +95,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Supplier;
 
 import org.roaringbitmap.RoaringBitmap;
@@ -1093,5 +1095,22 @@ public class NumberFieldTypeTests extends FieldTypeTestCase {
             assertEquals(expectedValue, value);
         }
         IOUtils.close(w, dir);
+    }
+
+    public void testSupportedCapabilitiesDefault() {
+        NumberFieldType ft = new NumberFieldType("field", NumberType.INTEGER);
+        // Default integer: searchable=true, stored=false, docValues=true
+        Set<FieldTypeCapabilities.Capability> caps = ft.supportedCapabilities();
+        assertTrue(caps.contains(FieldTypeCapabilities.Capability.POINT_RANGE));
+        assertTrue(caps.contains(FieldTypeCapabilities.Capability.COLUMNAR_STORAGE));
+        assertFalse(caps.contains(FieldTypeCapabilities.Capability.STORED_FIELDS));
+        assertFalse(caps.contains(FieldTypeCapabilities.Capability.FULL_TEXT_SEARCH));
+    }
+
+    public void testSupportedCapabilitiesNoDocValues() {
+        NumberFieldType ft = new NumberFieldType("field", NumberType.LONG, true, false, false, false, true, null, Collections.emptyMap());
+        Set<FieldTypeCapabilities.Capability> caps = ft.supportedCapabilities();
+        assertTrue(caps.contains(FieldTypeCapabilities.Capability.POINT_RANGE));
+        assertFalse(caps.contains(FieldTypeCapabilities.Capability.COLUMNAR_STORAGE));
     }
 }

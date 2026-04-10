@@ -63,6 +63,7 @@ import org.opensearch.index.analysis.NamedAnalyzer;
 import org.opensearch.index.analysis.ReloadableCustomAnalyzer;
 import org.opensearch.index.analysis.TokenFilterFactory;
 import org.opensearch.index.analysis.TokenizerFactory;
+import org.opensearch.index.engine.dataformat.DataFormatRegistry;
 import org.opensearch.index.mapper.Mapper.BuilderContext;
 import org.opensearch.index.query.QueryShardContext;
 import org.opensearch.index.similarity.SimilarityService;
@@ -231,6 +232,8 @@ public class MapperService extends AbstractIndexComponent implements Closeable {
     private volatile Set<String> fieldsPartOfCompositeMappings;
     private volatile Set<String> nestedFieldsPartOfCompositeMappings;
 
+    private final DataFormatRegistry dataFormatRegistry;
+
     public MapperService(
         IndexSettings indexSettings,
         IndexAnalyzers indexAnalyzers,
@@ -240,6 +243,30 @@ public class MapperService extends AbstractIndexComponent implements Closeable {
         Supplier<QueryShardContext> queryShardContextSupplier,
         BooleanSupplier idFieldDataEnabled,
         ScriptService scriptService
+    ) {
+        this(
+            indexSettings,
+            indexAnalyzers,
+            xContentRegistry,
+            similarityService,
+            mapperRegistry,
+            queryShardContextSupplier,
+            idFieldDataEnabled,
+            scriptService,
+            null
+        );
+    }
+
+    public MapperService(
+        IndexSettings indexSettings,
+        IndexAnalyzers indexAnalyzers,
+        NamedXContentRegistry xContentRegistry,
+        SimilarityService similarityService,
+        MapperRegistry mapperRegistry,
+        Supplier<QueryShardContext> queryShardContextSupplier,
+        BooleanSupplier idFieldDataEnabled,
+        ScriptService scriptService,
+        DataFormatRegistry dataFormatRegistry
     ) {
         super(indexSettings);
 
@@ -265,6 +292,7 @@ public class MapperService extends AbstractIndexComponent implements Closeable {
         );
         this.mapperRegistry = mapperRegistry;
         this.idFieldDataEnabled = idFieldDataEnabled;
+        this.dataFormatRegistry = dataFormatRegistry;
 
         if (INDEX_MAPPER_DYNAMIC_SETTING.exists(indexSettings.getSettings())) {
             deprecationLogger.deprecate(
@@ -274,6 +302,35 @@ public class MapperService extends AbstractIndexComponent implements Closeable {
                 INDEX_MAPPER_DYNAMIC_SETTING.getKey()
             );
         }
+    }
+
+    /**
+     * Resolves the configured data formats from index settings and returns their capabilities
+     * as a list of {@link ResolvedDataFormat}. Returns an empty list if no data formats are configured
+     * or if the {@link DataFormatRegistry} is not available.
+     *
+     * @opensearch.experimental
+     */
+    public List<ResolvedDataFormat> resolveDataFormatCapabilities() {
+        if (dataFormatRegistry == null) {
+            return Collections.emptyList();
+        }
+        Settings settings = getIndexSettings().getSettings();
+        String primaryFormat = settings.get("index.composite.primary_data_format");
+        List<String> secondaryFormats = settings.getAsList("index.composite.secondary_data_formats", Collections.emptyList());
+
+        if (primaryFormat == null && secondaryFormats.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<ResolvedDataFormat> resolved = new ArrayList<>();
+        if (primaryFormat != null) {
+            resolved.add(new ResolvedDataFormat(primaryFormat, dataFormatRegistry.getCapabilitiesByFormat(primaryFormat)));
+        }
+        for (String name : secondaryFormats) {
+            resolved.add(new ResolvedDataFormat(name, dataFormatRegistry.getCapabilitiesByFormat(name)));
+        }
+        return Collections.unmodifiableList(resolved);
     }
 
     public boolean hasNested() {

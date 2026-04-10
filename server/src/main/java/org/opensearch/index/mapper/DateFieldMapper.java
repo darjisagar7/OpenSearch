@@ -60,6 +60,7 @@ import org.opensearch.common.util.LocaleUtils;
 import org.opensearch.common.xcontent.support.XContentMapValues;
 import org.opensearch.index.IndexSortConfig;
 import org.opensearch.index.compositeindex.datacube.DimensionType;
+import org.opensearch.index.engine.dataformat.FieldTypeCapabilities;
 import org.opensearch.index.fielddata.IndexFieldData;
 import org.opensearch.index.fielddata.IndexNumericFieldData.NumericType;
 import org.opensearch.index.fielddata.plain.SortedNumericIndexFieldData;
@@ -79,10 +80,12 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -448,6 +451,21 @@ public final class DateFieldMapper extends ParametrizedFieldMapper {
         @Override
         public String typeName() {
             return resolution.type();
+        }
+
+        @Override
+        public Set<FieldTypeCapabilities.Capability> supportedCapabilities() {
+            EnumSet<FieldTypeCapabilities.Capability> caps = EnumSet.noneOf(FieldTypeCapabilities.Capability.class);
+            if (isSearchable()) {
+                caps.add(FieldTypeCapabilities.Capability.POINT_RANGE);
+            }
+            if (isStored()) {
+                caps.add(FieldTypeCapabilities.Capability.STORED_FIELDS);
+            }
+            if (hasDocValues()) {
+                caps.add(FieldTypeCapabilities.Capability.COLUMNAR_STORAGE);
+            }
+            return Set.copyOf(caps);
         }
 
         public DateFormatter dateTimeFormatter() {

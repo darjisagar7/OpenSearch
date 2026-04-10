@@ -57,8 +57,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -131,6 +133,20 @@ public class BinaryFieldMapper extends ParametrizedFieldMapper {
         @Override
         public String typeName() {
             return CONTENT_TYPE;
+        }
+
+        @Override
+        public Set<org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability> supportedCapabilities() {
+            EnumSet<org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability> caps = EnumSet.noneOf(
+                org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.class
+            );
+            if (isStored()) {
+                caps.add(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.STORED_FIELDS);
+            }
+            if (hasDocValues()) {
+                caps.add(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.COLUMNAR_STORAGE);
+            }
+            return Set.copyOf(caps);
         }
 
         @Override

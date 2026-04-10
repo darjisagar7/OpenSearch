@@ -54,6 +54,7 @@ import java.io.UncheckedIOException;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -293,6 +294,23 @@ public abstract class AbstractGeometryFieldMapper<Parsed, Processed> extends Fie
         ) {
             super(name, indexed, stored, hasDocValues, TextSearchInfo.SIMPLE_MATCH_ONLY, meta);
             this.parsesArrayValue = parsesArrayValue;
+        }
+
+        @Override
+        public java.util.Set<org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability> supportedCapabilities() {
+            EnumSet<org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability> caps = EnumSet.noneOf(
+                org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.class
+            );
+            if (isSearchable()) {
+                caps.add(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.POINT_RANGE);
+            }
+            if (isStored()) {
+                caps.add(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.STORED_FIELDS);
+            }
+            if (hasDocValues()) {
+                caps.add(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.COLUMNAR_STORAGE);
+            }
+            return java.util.Set.copyOf(caps);
         }
 
         public void setGeometryIndexer(Indexer<Parsed, Processed> geometryIndexer) {

@@ -244,6 +244,9 @@ public class ObjectMapper extends Mapper implements Cloneable {
             Map<String, Mapper> mappers = new HashMap<>();
             for (Mapper.Builder builder : mappersBuilders) {
                 Mapper mapper = builder.build(context);
+                if (mapper instanceof FieldMapper) {
+                    context.validateFieldAgainstDataFormats((FieldMapper) mapper);
+                }
                 Mapper existing = mappers.get(mapper.simpleName());
                 if (existing != null) {
                     mapper = existing.merge(mapper);

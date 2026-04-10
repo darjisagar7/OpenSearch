@@ -62,6 +62,7 @@ import org.opensearch.core.xcontent.XContentParser;
 import org.opensearch.index.analysis.IndexAnalyzers;
 import org.opensearch.index.analysis.NamedAnalyzer;
 import org.opensearch.index.compositeindex.datacube.DimensionType;
+import org.opensearch.index.engine.dataformat.FieldTypeCapabilities;
 import org.opensearch.index.fielddata.IndexFieldData;
 import org.opensearch.index.fielddata.plain.SortedSetOrdinalsIndexFieldData;
 import org.opensearch.index.query.QueryShardContext;
@@ -73,10 +74,12 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 import static org.opensearch.search.SearchService.ALLOW_EXPENSIVE_QUERIES;
@@ -386,6 +389,21 @@ public final class KeywordFieldMapper extends ParametrizedFieldMapper {
         @Override
         public String typeName() {
             return CONTENT_TYPE;
+        }
+
+        @Override
+        public Set<FieldTypeCapabilities.Capability> supportedCapabilities() {
+            EnumSet<FieldTypeCapabilities.Capability> caps = EnumSet.noneOf(FieldTypeCapabilities.Capability.class);
+            if (isSearchable()) {
+                caps.add(FieldTypeCapabilities.Capability.FULL_TEXT_SEARCH);
+            }
+            if (isStored()) {
+                caps.add(FieldTypeCapabilities.Capability.STORED_FIELDS);
+            }
+            if (hasDocValues()) {
+                caps.add(FieldTypeCapabilities.Capability.COLUMNAR_STORAGE);
+            }
+            return Set.copyOf(caps);
         }
 
         NamedAnalyzer normalizer() {

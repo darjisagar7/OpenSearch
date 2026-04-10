@@ -72,6 +72,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -330,6 +331,20 @@ public class SearchAsYouTypeFieldMapper extends ParametrizedFieldMapper {
         @Override
         public String typeName() {
             return CONTENT_TYPE;
+        }
+
+        @Override
+        public java.util.Set<org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability> supportedCapabilities() {
+            EnumSet<org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability> caps = EnumSet.noneOf(
+                org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.class
+            );
+            if (isSearchable()) {
+                caps.add(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.FULL_TEXT_SEARCH);
+            }
+            if (isStored()) {
+                caps.add(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.STORED_FIELDS);
+            }
+            return java.util.Set.copyOf(caps);
         }
 
         private ShingleFieldType shingleFieldForPositions(int positions) {

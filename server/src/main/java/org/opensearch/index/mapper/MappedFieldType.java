@@ -57,6 +57,7 @@ import org.opensearch.common.geo.ShapeRelation;
 import org.opensearch.common.time.DateMathParser;
 import org.opensearch.common.unit.Fuzziness;
 import org.opensearch.index.analysis.NamedAnalyzer;
+import org.opensearch.index.engine.dataformat.FieldTypeCapabilities;
 import org.opensearch.index.fielddata.IndexFieldData;
 import org.opensearch.index.query.DistanceFeatureQueryBuilder;
 import org.opensearch.index.query.IntervalMode;
@@ -69,9 +70,11 @@ import org.opensearch.search.lookup.SearchLookup;
 
 import java.io.IOException;
 import java.time.ZoneId;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -206,6 +209,22 @@ public abstract class MappedFieldType {
         } catch (IllegalArgumentException e) {
             return false;
         }
+    }
+
+    /**
+     * Returns the set of {@link FieldTypeCapabilities.Capability} that this field type supports.
+     * Data formats use this to determine whether they can handle a given field.
+     * <p>
+     * The default implementation returns an empty set. Subclasses must override this to declare
+     * their specific capabilities (e.g., {@code FULL_TEXT_SEARCH}, {@code COLUMNAR_STORAGE},
+     * {@code POINT_RANGE}, {@code VECTOR_SEARCH}).
+     *
+     * @return an unmodifiable set of supported capabilities; empty by default
+     *
+     * @opensearch.experimental
+     */
+    public Set<FieldTypeCapabilities.Capability> supportedCapabilities() {
+        return Collections.emptySet();
     }
 
     /** Generates a query that will only match documents that contain the given value.

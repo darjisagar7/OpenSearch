@@ -141,6 +141,11 @@ public class HllFieldMapper extends ParametrizedFieldMapper {
             return CONTENT_TYPE;
         }
 
+        @Override
+        public java.util.Set<org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability> supportedCapabilities() {
+            return java.util.Set.of(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.COLUMNAR_STORAGE);
+        }
+
         public int precision() {
             return precision;
         }

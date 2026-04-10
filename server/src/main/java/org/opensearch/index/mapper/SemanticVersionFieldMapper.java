@@ -38,9 +38,11 @@ import org.opensearch.search.lookup.SearchLookup;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -163,6 +165,23 @@ public class SemanticVersionFieldMapper extends ParametrizedFieldMapper {
         @Override
         public String typeName() {
             return CONTENT_TYPE;
+        }
+
+        @Override
+        public Set<org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability> supportedCapabilities() {
+            EnumSet<org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability> caps = EnumSet.noneOf(
+                org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.class
+            );
+            if (isSearchable) {
+                caps.add(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.FULL_TEXT_SEARCH);
+            }
+            if (isStored) {
+                caps.add(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.STORED_FIELDS);
+            }
+            if (hasDocValues) {
+                caps.add(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.COLUMNAR_STORAGE);
+            }
+            return Set.copyOf(caps);
         }
 
         @Override

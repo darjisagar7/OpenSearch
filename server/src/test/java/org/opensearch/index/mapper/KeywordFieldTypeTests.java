@@ -72,6 +72,7 @@ import org.opensearch.index.analysis.LowercaseNormalizer;
 import org.opensearch.index.analysis.NamedAnalyzer;
 import org.opensearch.index.analysis.TokenFilterFactory;
 import org.opensearch.index.analysis.TokenizerFactory;
+import org.opensearch.index.engine.dataformat.FieldTypeCapabilities;
 import org.opensearch.index.mapper.KeywordFieldMapper.KeywordFieldType;
 import org.opensearch.index.mapper.MappedFieldType.Relation;
 
@@ -81,6 +82,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class KeywordFieldTypeTests extends FieldTypeTestCase {
 
@@ -517,5 +519,30 @@ public class KeywordFieldTypeTests extends FieldTypeTestCase {
                 )
             )
         );
+    }
+
+    public void testSupportedCapabilitiesDefault() {
+        KeywordFieldType ft = new KeywordFieldType("field");
+        // Default keyword: searchable=true, stored=false, docValues=true
+        Set<FieldTypeCapabilities.Capability> caps = ft.supportedCapabilities();
+        assertTrue(caps.contains(FieldTypeCapabilities.Capability.FULL_TEXT_SEARCH));
+        assertTrue(caps.contains(FieldTypeCapabilities.Capability.COLUMNAR_STORAGE));
+        assertFalse(caps.contains(FieldTypeCapabilities.Capability.STORED_FIELDS));
+        assertFalse(caps.contains(FieldTypeCapabilities.Capability.POINT_RANGE));
+        assertFalse(caps.contains(FieldTypeCapabilities.Capability.VECTOR_SEARCH));
+    }
+
+    public void testSupportedCapabilitiesNoDocValues() {
+        KeywordFieldType ft = new KeywordFieldType("field", true, false, Collections.emptyMap());
+        Set<FieldTypeCapabilities.Capability> caps = ft.supportedCapabilities();
+        assertTrue(caps.contains(FieldTypeCapabilities.Capability.FULL_TEXT_SEARCH));
+        assertFalse(caps.contains(FieldTypeCapabilities.Capability.COLUMNAR_STORAGE));
+    }
+
+    public void testSupportedCapabilitiesNotSearchable() {
+        KeywordFieldType ft = new KeywordFieldType("field", false, true, Collections.emptyMap());
+        Set<FieldTypeCapabilities.Capability> caps = ft.supportedCapabilities();
+        assertFalse(caps.contains(FieldTypeCapabilities.Capability.FULL_TEXT_SEARCH));
+        assertTrue(caps.contains(FieldTypeCapabilities.Capability.COLUMNAR_STORAGE));
     }
 }

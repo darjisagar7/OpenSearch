@@ -278,4 +278,33 @@ public class DataFormatRegistryTests extends OpenSearchTestCase {
 
         expectThrows(UnsupportedOperationException.class, () -> formats.add(new MockDataFormat("new", 1L, Set.of())));
     }
+
+    public void testGetCapabilitiesByFormatReturnsPreIndexedMap() {
+        MockDataFormat format = new MockDataFormat(
+            "lucene",
+            100L,
+            Set.of(
+                new FieldTypeCapabilities(
+                    "keyword",
+                    Set.of(FieldTypeCapabilities.Capability.FULL_TEXT_SEARCH, FieldTypeCapabilities.Capability.COLUMNAR_STORAGE)
+                ),
+                new FieldTypeCapabilities("integer", Set.of(FieldTypeCapabilities.Capability.POINT_RANGE))
+            )
+        );
+        MockSearchBackEndPlugin backEnd = new MockSearchBackEndPlugin(List.of(format));
+
+        when(pluginsService.filterPlugins(DataFormatPlugin.class)).thenReturn(List.of(new MockDataFormatPlugin(format)));
+        when(pluginsService.filterPlugins(SearchBackEndPlugin.class)).thenReturn(List.of(backEnd));
+
+        DataFormatRegistry registry = new DataFormatRegistry(pluginsService);
+
+        Map<String, Set<FieldTypeCapabilities.Capability>> caps = registry.getCapabilitiesByFormat("lucene");
+        assertEquals(2, caps.size());
+        assertTrue(caps.get("keyword").contains(FieldTypeCapabilities.Capability.FULL_TEXT_SEARCH));
+        assertTrue(caps.get("keyword").contains(FieldTypeCapabilities.Capability.COLUMNAR_STORAGE));
+        assertTrue(caps.get("integer").contains(FieldTypeCapabilities.Capability.POINT_RANGE));
+
+        // Unknown format returns empty map
+        assertTrue(registry.getCapabilitiesByFormat("unknown").isEmpty());
+    }
 }
