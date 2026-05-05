@@ -1295,7 +1295,7 @@ public class DataFormatAwareEngine implements Indexer {
 
     private void applyMergeChanges(MergeResult mergeResult, OneMerge oneMerge) {
         refreshLock.lock();
-        try {
+        try (GatedCloseable<CatalogSnapshot> oldSnapshotRef = catalogSnapshotManager.acquireSnapshot()) {
             catalogSnapshotManager.applyMergeResults(mergeResult, oneMerge);
             try (GatedCloseable<CatalogSnapshot> newSnapshotRef = catalogSnapshotManager.acquireSnapshot()) {
                 refreshListeners(true, newSnapshotRef.get());

@@ -14,6 +14,7 @@ import org.apache.logging.log4j.message.ParameterizedMessage;
 import org.opensearch.index.engine.dataformat.DataFormat;
 import org.opensearch.index.engine.dataformat.MergeInput;
 import org.opensearch.index.engine.dataformat.MergeResult;
+import org.opensearch.index.engine.dataformat.RowIdMapping;
 import org.opensearch.index.engine.exec.WriterFileSet;
 import org.opensearch.parquet.bridge.RustBridge;
 import org.opensearch.parquet.engine.ParquetIndexingEngine;
@@ -63,7 +64,7 @@ public class NativeParquetMergeStrategy implements ParquetMergeStrategy {
 
         try {
             // Merge files in Rust
-            RustBridge.mergeParquetFilesInRust(filePaths, mergedFilePath, indexName);
+            RowIdMapping rowIdMapping = RustBridge.mergeParquetFilesInRust(filePaths, mergedFilePath, indexName);
 
             WriterFileSet mergedWriterFileSet = WriterFileSet.builder()
                 .directory(Path.of(files.getFirst().directory()))
@@ -73,7 +74,7 @@ public class NativeParquetMergeStrategy implements ParquetMergeStrategy {
 
             Map<DataFormat, WriterFileSet> mergedWriterFileSetMap = Collections.singletonMap(dataFormat, mergedWriterFileSet);
 
-            return new MergeResult(mergedWriterFileSetMap);
+            return new MergeResult(mergedWriterFileSetMap, rowIdMapping);
 
         } catch (Exception exception) {
             logger.error(() -> new ParameterizedMessage("Merge failed while creating merged file [{}]", mergedFilePath), exception);
