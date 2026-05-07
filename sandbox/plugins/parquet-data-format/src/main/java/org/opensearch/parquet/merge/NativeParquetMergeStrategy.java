@@ -54,11 +54,10 @@ public class NativeParquetMergeStrategy implements ParquetMergeStrategy {
 
         List<Path> filePaths = new ArrayList<>();
         files.forEach(
-            writerFileSet -> writerFileSet.files()
-                .forEach(file -> filePaths.add(shardDataPath.resolve(writerFileSet.directory()).resolve(file)))
+            writerFileSet -> writerFileSet.files().forEach(file -> filePaths.add(Path.of(writerFileSet.directory()).resolve(file)))
         );
 
-        String outputDirectory = shardDataPath.resolve(files.getFirst().directory()).toString();
+        String outputDirectory = files.getFirst().directory();
         String mergedFilePath = getMergedFilePath(writerGeneration, outputDirectory);
         String mergedFileName = getMergedFileName(writerGeneration);
 
@@ -67,7 +66,7 @@ public class NativeParquetMergeStrategy implements ParquetMergeStrategy {
             RowIdMapping rowIdMapping = RustBridge.mergeParquetFilesInRust(filePaths, mergedFilePath, indexName);
 
             WriterFileSet mergedWriterFileSet = WriterFileSet.builder()
-                .directory(Path.of(files.getFirst().directory()))
+                .directory(Path.of(outputDirectory))
                 .addFile(mergedFileName)
                 .writerGeneration(writerGeneration)
                 .build();

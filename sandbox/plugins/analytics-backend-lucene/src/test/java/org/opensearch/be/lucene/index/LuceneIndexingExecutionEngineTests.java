@@ -47,6 +47,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -126,7 +127,7 @@ public class LuceneIndexingExecutionEngineTests extends OpenSearchTestCase {
             null,
             null
         );
-        CommitterConfig settings = new CommitterConfig(engineConfig);
+        CommitterConfig settings = new CommitterConfig(engineConfig, new ReentrantLock());
         return new LuceneCommitter(settings);
     }
 

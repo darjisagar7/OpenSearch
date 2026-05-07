@@ -32,6 +32,7 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Tests for {@link SafeBootstrapCommitter}.
@@ -115,7 +116,7 @@ public class SafeBootstrapCommitterTests extends OpenSearchTestCase {
 
     public void testThrowsWhenNullEngineConfig() {
         reset();
-        expectThrows(IllegalArgumentException.class, () -> new TestCommitter(new CommitterConfig(null)));
+        expectThrows(IllegalArgumentException.class, () -> new TestCommitter(new CommitterConfig(null, new ReentrantLock())));
     }
 
     public void testThrowsWhenNullTranslogConfig() throws IOException {
@@ -126,7 +127,7 @@ public class SafeBootstrapCommitterTests extends OpenSearchTestCase {
                 .store(store)
                 .retentionLeasesSupplier(() -> new RetentionLeases(0, 0, Collections.emptyList()))
                 .build();
-            expectThrows(IllegalArgumentException.class, () -> new TestCommitter(new CommitterConfig(ec)));
+            expectThrows(IllegalArgumentException.class, () -> new TestCommitter(new CommitterConfig(ec, new ReentrantLock())));
         } finally {
             store.close();
         }
@@ -137,7 +138,7 @@ public class SafeBootstrapCommitterTests extends OpenSearchTestCase {
         Store store = createStore();
         Path translogPath = createTempDir();
         try {
-            new TestCommitter(new CommitterConfig(buildEngineConfig(store, translogPath)));
+            new TestCommitter(new CommitterConfig(buildEngineConfig(store, translogPath), new ReentrantLock()));
             assertTrue(discoverAndTrimCalled);
         } finally {
             store.close();

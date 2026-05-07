@@ -376,7 +376,6 @@ public class CompositeMergeIT extends OpenSearchIntegTestCase {
      *   <li>Additional ingestion after merge succeeds and produces new segments</li>
      * </ol>
      */
-    @AwaitsFix(bugUrl = "https://github.com/opensearch-project/OpenSearch/issues/0000")
     public void testParquetPrimaryLuceneSecondaryMerge() throws Exception {
         client().admin()
             .indices()
@@ -388,7 +387,7 @@ public class CompositeMergeIT extends OpenSearchIntegTestCase {
 
         // Phase 1: Index documents to create multiple segments
         int docsPerCycle = 5;
-        int refreshCycles = 10;
+        int refreshCycles = 13;
         indexDocsAcrossMultipleRefreshes(refreshCycles, docsPerCycle);
         int totalDocs = refreshCycles * docsPerCycle;
 
@@ -455,7 +454,6 @@ public class CompositeMergeIT extends OpenSearchIntegTestCase {
      * the primary format reorders rows during merge, and the secondary must apply
      * the same reordering via the mapping.
      */
-    @AwaitsFix(bugUrl = "https://github.com/opensearch-project/OpenSearch/issues/0000")
     public void testSortedParquetPrimaryLuceneSecondaryMerge() throws Exception {
         client().admin()
             .indices()
@@ -466,7 +464,7 @@ public class CompositeMergeIT extends OpenSearchIntegTestCase {
         ensureGreen(INDEX_NAME);
 
         int docsPerCycle = 10;
-        int refreshCycles = 10;
+        int refreshCycles = 15;
         indexDocsWithNullsAcrossRefreshes(refreshCycles, docsPerCycle);
         int totalDocs = refreshCycles * docsPerCycle;
 

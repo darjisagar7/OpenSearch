@@ -85,6 +85,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -210,7 +211,11 @@ public class DataFormatAwareEngine implements Indexer {
             store.incRef();
 
             // 1. Create Committer (uses translogPath for safe bootstrap trimming)
-            this.committer = engineConfig.getCommitterFactory().getCommitter(new CommitterConfig(engineConfig));
+            // Pass refreshLock so committer-owned writers (e.g. Lucene MergeIndexWriter) can
+            // acquire it inside commitMerge before exposing merged segments to the engine.
+            // Ownership of the lock transfers to applyMergeChanges, which releases it after
+            // catalog updates complete.
+            this.committer = engineConfig.getCommitterFactory().getCommitter(new CommitterConfig(engineConfig, refreshLock));
 
             // 2. Read translogUUID and history UUID from last committed data
             final Map<String, String> userData = committer.getLastCommittedData();
@@ -1262,6 +1267,7 @@ public class DataFormatAwareEngine implements Indexer {
                     readers.put(entry.getKey(), reader);
                 }
             }
+//            assert readersAreSame(catalogSnapshot, readers);
             DataFormatAwareReader reader = new DataFormatAwareReader(snapshotRef, readers);
             return new GatedCloseable<>(reader, reader::close);
         } catch (Exception e) {
@@ -1294,7 +1300,9 @@ public class DataFormatAwareEngine implements Indexer {
     }
 
     private void applyMergeChanges(MergeResult mergeResult, OneMerge oneMerge) {
-        refreshLock.lock();
+        // refreshLock was acquired inside MergeIndexWriter#onMergeComplete during commitMerge.
+        // This method owns the release.
+        assert refreshLock.isHeldByCurrentThread() : "refreshLock must be held on entry to applyMergeChanges";
         try (GatedCloseable<CatalogSnapshot> oldSnapshotRef = catalogSnapshotManager.acquireSnapshot()) {
             catalogSnapshotManager.applyMergeResults(mergeResult, oneMerge);
             try (GatedCloseable<CatalogSnapshot> newSnapshotRef = catalogSnapshotManager.acquireSnapshot()) {

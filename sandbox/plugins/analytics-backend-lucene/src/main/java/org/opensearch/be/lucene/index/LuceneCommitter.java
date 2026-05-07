@@ -91,7 +91,7 @@ public class LuceneCommitter extends SafeBootstrapCommitter {
         try {
             this.deletionPolicy = new LuceneCommitDeletionPolicy();
             IndexWriterConfig iwc = createIndexWriterConfig(committerConfig.engineConfig());
-            this.indexWriter = new MergeIndexWriter(store.directory(), iwc);
+            this.indexWriter = new MergeIndexWriter(store.directory(), iwc, committerConfig.refreshLock());
         } catch (Exception e) {
             store.decRef();
             throw e;

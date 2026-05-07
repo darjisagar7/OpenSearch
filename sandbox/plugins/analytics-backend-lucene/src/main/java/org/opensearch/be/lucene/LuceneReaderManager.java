@@ -9,16 +9,26 @@
 package org.opensearch.be.lucene;
 
 import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.LeafReader;
+import org.apache.lucene.index.SegmentCommitInfo;
+import org.apache.lucene.index.SegmentInfo;
+import org.apache.lucene.index.SegmentReader;
 import org.opensearch.common.annotation.ExperimentalApi;
 import org.opensearch.index.engine.dataformat.DataFormat;
 import org.opensearch.index.engine.exec.EngineReaderManager;
+import org.opensearch.index.engine.exec.Segment;
 import org.opensearch.index.engine.exec.coord.CatalogSnapshot;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
+
+import static org.opensearch.be.lucene.index.LuceneWriter.WRITER_GENERATION_ATTRIBUTE;
 
 /**
  * Lucene implementation of {@link EngineReaderManager}.
@@ -60,6 +70,17 @@ public class LuceneReaderManager implements EngineReaderManager<DirectoryReader>
         return reader;
     }
 
+    private Collection<Long> collectReferencedGenerations(Object reader) {
+        DirectoryReader directoryReader = (DirectoryReader) reader;
+        return directoryReader.leaves().stream().map(lrc -> {
+            SegmentReader segmentReader = (SegmentReader) lrc.reader();
+            SegmentCommitInfo sci = segmentReader.getSegmentInfo();
+            return Long.parseLong(sci.info.getAttribute(WRITER_GENERATION_ATTRIBUTE));
+        })
+            .sorted()
+            .toList();
+    }
+
     @Override
     public void beforeRefresh() throws IOException {
         // no-op
@@ -71,10 +92,16 @@ public class LuceneReaderManager implements EngineReaderManager<DirectoryReader>
             return;
         }
         DirectoryReader refreshed = DirectoryReader.openIfChanged(currentReader);
+        assert readersAreSame(catalogSnapshot, refreshed);
         if (refreshed != null) {
             currentReader = refreshed;
         }
         readers.put(catalogSnapshot, currentReader);
+    }
+
+    private boolean readersAreSame(CatalogSnapshot catalogSnapshot, DirectoryReader readers) {
+        Collection<Long> generationsReferenced = catalogSnapshot.getSegments().stream().map(Segment::generation).sorted().toList();
+        return generationsReferenced.equals(collectReferencedGenerations(readers));
     }
 
     @Override

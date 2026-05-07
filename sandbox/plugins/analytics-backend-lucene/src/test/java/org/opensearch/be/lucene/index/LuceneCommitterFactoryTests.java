@@ -30,6 +30,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Tests for {@link LuceneCommitterFactory}.
@@ -56,7 +57,7 @@ public class LuceneCommitterFactoryTests extends OpenSearchTestCase {
                 .retentionLeasesSupplier(() -> new RetentionLeases(0, 0, Collections.emptyList()))
                 .build();
             LuceneCommitterFactory committerFactory = new LuceneCommitterFactory();
-            committer = committerFactory.getCommitter(new CommitterConfig(engineConfig));
+            committer = committerFactory.getCommitter(new CommitterConfig(engineConfig, new ReentrantLock()));
 
             assertTrue("getCommitter() should return a LuceneCommitter instance", committer instanceof LuceneCommitter);
         } finally {

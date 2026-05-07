@@ -11,13 +11,20 @@ package org.opensearch.index.engine.exec.commit;
 import org.opensearch.common.annotation.ExperimentalApi;
 import org.opensearch.index.engine.EngineConfig;
 
+import java.util.concurrent.locks.ReentrantLock;
+
 /**
  * Initialization parameters for a {@link Committer}.
- * Carries the engine configuration needed to set up the backing store.
  *
- * @param engineConfig the engine configuration (nullable — may be absent in tests or standalone mode)
+ * <p>{@code refreshLock} is the engine-owned lock coordinating post-merge catalog
+ * updates with refreshes. Committer-owned writers that participate in merges (e.g.
+ * the Lucene {@code MergeIndexWriter}) acquire it inside their commitMerge hook;
+ * the engine releases it after applying catalog changes.
+ *
+ * @param engineConfig engine configuration
+ * @param refreshLock  engine-owned refresh lock, transferred through the commit path
  * @opensearch.experimental
  */
 @ExperimentalApi
-public record CommitterConfig(EngineConfig engineConfig) {
+public record CommitterConfig(EngineConfig engineConfig, ReentrantLock refreshLock) {
 }

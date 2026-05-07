@@ -51,6 +51,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static org.mockito.Mockito.mock;
 
@@ -286,7 +287,7 @@ public class LuceneReaderManagerTests extends OpenSearchTestCase {
             )
             .retentionLeasesSupplier(() -> new RetentionLeases(0, 0, java.util.Collections.emptyList()))
             .build();
-        CommitterConfig cs = new CommitterConfig(engineConfig);
+        CommitterConfig cs = new CommitterConfig(engineConfig, new ReentrantLock());
         LuceneCommitter committer = new LuceneCommitter(cs);
 
         try {

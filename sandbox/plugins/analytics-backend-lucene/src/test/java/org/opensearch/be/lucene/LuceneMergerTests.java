@@ -46,6 +46,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static org.opensearch.be.lucene.index.LuceneWriter.WRITER_GENERATION_ATTRIBUTE;
 
@@ -72,7 +73,7 @@ public class LuceneMergerTests extends OpenSearchTestCase {
         iwc.setMergeScheduler(new SerialMergeScheduler());
         iwc.setMergePolicy(NoMergePolicy.INSTANCE);
         iwc.setIndexSort(new Sort(new SortedNumericSortField(ROW_ID_FIELD, SortField.Type.LONG)));
-        writer = new MergeIndexWriter(directory, iwc);
+        writer = new MergeIndexWriter(directory, iwc, new ReentrantLock());
     }
 
     @Override
