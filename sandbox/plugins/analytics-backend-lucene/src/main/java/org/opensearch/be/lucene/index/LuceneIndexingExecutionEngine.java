@@ -182,7 +182,7 @@ public class LuceneIndexingExecutionEngine implements IndexingExecutionEngine<Lu
      */
     @Override
     public LuceneDocumentInput newDocumentInput() {
-        return new LuceneDocumentInput(fieldFactoryRegistry);
+        return new LuceneDocumentInput(dataFormat, fieldFactoryRegistry);
     }
 
     /** {@inheritDoc} Returns the {@link LuceneDataFormat} descriptor. */

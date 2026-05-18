@@ -18,11 +18,13 @@ import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.index.IndexSettings;
 import org.opensearch.index.engine.dataformat.DocumentInput;
+import org.opensearch.index.engine.dataformat.DataFormat;
 import org.opensearch.index.mapper.KeywordFieldMapper;
 import org.opensearch.index.mapper.NumberFieldMapper;
 import org.opensearch.parquet.ParquetDataFormatPlugin;
 import org.opensearch.parquet.bridge.ParquetFileMetadata;
 import org.opensearch.parquet.bridge.RustBridge;
+import org.opensearch.parquet.engine.ParquetDataFormat;
 import org.opensearch.parquet.memory.ArrowBufferPool;
 import org.opensearch.parquet.writer.ParquetDocumentInput;
 import org.opensearch.test.OpenSearchTestCase;
@@ -32,11 +34,13 @@ import org.opensearch.threadpool.ThreadPool;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.opensearch.parquet.engine.ParquetIndexingEngineTests.assignTestCapabilities;
 import static org.opensearch.parquet.engine.ParquetIndexingEngineTests.metadataFields;
 import static org.opensearch.parquet.engine.ParquetIndexingEngineTests.populateMetadataFields;
 
 public class VSRManagerTests extends OpenSearchTestCase {
 
+    private static final DataFormat PARQUET_FORMAT = new ParquetDataFormat();
     private ArrowBufferPool bufferPool;
     private Schema schema;
     private ThreadPool threadPool;
@@ -118,7 +122,8 @@ public class VSRManagerTests extends OpenSearchTestCase {
         VSRManager manager = new VSRManager(filePath, indexSettings, schema, bufferPool, 50000, threadPool, 0L);
 
         NumberFieldMapper.NumberFieldType valField = new NumberFieldMapper.NumberFieldType("val", NumberFieldMapper.NumberType.INTEGER);
-        ParquetDocumentInput doc = new ParquetDocumentInput();
+        assignTestCapabilities(valField, PARQUET_FORMAT);
+        ParquetDocumentInput doc = new ParquetDocumentInput(PARQUET_FORMAT);
         populateMetadataFields(doc);
         doc.addField(valField, 42);
         doc.setRowId("__row_id__", 0);
@@ -305,7 +310,9 @@ public class VSRManagerTests extends OpenSearchTestCase {
 
         NumberFieldMapper.NumberFieldType valField = new NumberFieldMapper.NumberFieldType("val", NumberFieldMapper.NumberType.INTEGER);
         KeywordFieldMapper.KeywordFieldType tagField = new KeywordFieldMapper.KeywordFieldType("tag");
-        ParquetDocumentInput doc = new ParquetDocumentInput();
+        assignTestCapabilities(valField, PARQUET_FORMAT);
+        assignTestCapabilities(tagField, PARQUET_FORMAT);
+        ParquetDocumentInput doc = new ParquetDocumentInput(PARQUET_FORMAT);
         populateMetadataFields(doc);
         doc.setRowId(DocumentInput.ROW_ID_FIELD, 1);
         doc.addField(valField, 42);
@@ -324,7 +331,8 @@ public class VSRManagerTests extends OpenSearchTestCase {
         assertTrue(manager.isSchemaMutable());
 
         NumberFieldMapper.NumberFieldType valField = new NumberFieldMapper.NumberFieldType("val", NumberFieldMapper.NumberType.INTEGER);
-        ParquetDocumentInput doc = new ParquetDocumentInput();
+        assignTestCapabilities(valField, PARQUET_FORMAT);
+        ParquetDocumentInput doc = new ParquetDocumentInput(PARQUET_FORMAT);
         populateMetadataFields(doc);
         doc.setRowId(DocumentInput.ROW_ID_FIELD, 1);
         doc.addField(valField, 1);
@@ -340,15 +348,17 @@ public class VSRManagerTests extends OpenSearchTestCase {
 
         NumberFieldMapper.NumberFieldType valField = new NumberFieldMapper.NumberFieldType("val", NumberFieldMapper.NumberType.INTEGER);
         KeywordFieldMapper.KeywordFieldType tagField = new KeywordFieldMapper.KeywordFieldType("tag");
+        assignTestCapabilities(valField, PARQUET_FORMAT);
+        assignTestCapabilities(tagField, PARQUET_FORMAT);
 
-        ParquetDocumentInput doc1 = new ParquetDocumentInput();
+        ParquetDocumentInput doc1 = new ParquetDocumentInput(PARQUET_FORMAT);
         populateMetadataFields(doc1);
         doc1.setRowId(DocumentInput.ROW_ID_FIELD, 1L);
         doc1.addField(valField, 1);
         doc1.addField(tagField, "a");
         manager.addDocument(doc1);
 
-        ParquetDocumentInput doc2 = new ParquetDocumentInput();
+        ParquetDocumentInput doc2 = new ParquetDocumentInput(PARQUET_FORMAT);
         populateMetadataFields(doc2);
         doc2.setRowId(DocumentInput.ROW_ID_FIELD, 2L);
         doc2.addField(valField, 2);
@@ -367,8 +377,12 @@ public class VSRManagerTests extends OpenSearchTestCase {
         KeywordFieldMapper.KeywordFieldType tag1Field = new KeywordFieldMapper.KeywordFieldType("tag1");
         KeywordFieldMapper.KeywordFieldType tag2Field = new KeywordFieldMapper.KeywordFieldType("tag2");
         KeywordFieldMapper.KeywordFieldType tag3Field = new KeywordFieldMapper.KeywordFieldType("tag3");
+        assignTestCapabilities(valField, PARQUET_FORMAT);
+        assignTestCapabilities(tag1Field, PARQUET_FORMAT);
+        assignTestCapabilities(tag2Field, PARQUET_FORMAT);
+        assignTestCapabilities(tag3Field, PARQUET_FORMAT);
 
-        ParquetDocumentInput doc = new ParquetDocumentInput();
+        ParquetDocumentInput doc = new ParquetDocumentInput(PARQUET_FORMAT);
         populateMetadataFields(doc);
         doc.setRowId(DocumentInput.ROW_ID_FIELD, 1L);
         doc.addField(valField, 1);

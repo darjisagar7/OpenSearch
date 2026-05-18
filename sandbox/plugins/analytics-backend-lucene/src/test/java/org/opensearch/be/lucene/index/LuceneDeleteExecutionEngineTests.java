@@ -123,11 +123,15 @@ public class LuceneDeleteExecutionEngineTests extends OpenSearchTestCase {
     }
 
     private void addDoc(LuceneWriter writer, String id, int rowId) throws IOException {
-        LuceneDocumentInput input = new LuceneDocumentInput();
+        LuceneDocumentInput input = new LuceneDocumentInput(dataFormat);
         org.opensearch.index.mapper.MappedFieldType idField = mock(org.opensearch.index.mapper.MappedFieldType.class);
         when(idField.typeName()).thenReturn("_id");
         when(idField.name()).thenReturn("_id");
         when(idField.hasDocValues()).thenReturn(false);
+        // Stamp this format as the owner so the per-format filter accepts the field
+        when(idField.getCapabilityMap()).thenReturn(
+            java.util.Map.of(dataFormat, java.util.Set.of(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.STORED_FIELDS))
+        );
         input.addField(idField, id.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         input.setRowId(DocumentInput.ROW_ID_FIELD, rowId);
         writer.addDoc(input);

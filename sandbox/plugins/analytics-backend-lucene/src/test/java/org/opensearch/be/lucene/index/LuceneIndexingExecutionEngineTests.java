@@ -25,6 +25,7 @@ import org.opensearch.index.IndexSettings;
 import org.opensearch.index.codec.CodecService;
 import org.opensearch.index.engine.EngineConfig;
 import org.opensearch.index.engine.EngineConfigFactory;
+import org.opensearch.index.engine.dataformat.DataFormat;
 import org.opensearch.index.engine.dataformat.FileInfos;
 import org.opensearch.index.engine.dataformat.RefreshInput;
 import org.opensearch.index.engine.dataformat.RefreshResult;
@@ -53,6 +54,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -172,8 +174,9 @@ public class LuceneIndexingExecutionEngineTests extends OpenSearchTestCase {
 
         long generation = 1L;
         try (LuceneWriter luceneWriter = new LuceneWriter(generation, 0L, luceneDataFormat, tempBase, null, Codec.getDefault(), null)) {
+            assignTestCapabilities(textField, luceneDataFormat);
             for (int i = 0; i < numDocs; i++) {
-                LuceneDocumentInput input = new LuceneDocumentInput();
+                LuceneDocumentInput input = new LuceneDocumentInput(luceneDataFormat);
                 input.addField(textField, "doc_" + i);
                 input.setRowId(LuceneDocumentInput.ROW_ID_FIELD, i);
                 luceneWriter.addDoc(input);
@@ -274,6 +277,8 @@ public class LuceneIndexingExecutionEngineTests extends OpenSearchTestCase {
         keywordFieldType.setIndexOptions(IndexOptions.DOCS);
         keywordFieldType.freeze();
         MappedFieldType keywordField = new KeywordFieldType("tag", keywordFieldType);
+        assignTestCapabilities(textField, luceneDataFormat);
+        assignTestCapabilities(keywordField, luceneDataFormat);
 
         // Create writer through the engine
         Writer<LuceneDocumentInput> writer = engine.createWriter(new WriterConfig(generation));
@@ -322,6 +327,7 @@ public class LuceneIndexingExecutionEngineTests extends OpenSearchTestCase {
         IndexWriter sharedWriter = committer.getIndexWriter();
 
         MappedFieldType textField = new org.opensearch.index.mapper.TextFieldMapper.TextFieldType("content");
+        assignTestCapabilities(textField, luceneDataFormat);
 
         long gen1 = 1L;
         long gen2 = 2L;
@@ -420,5 +426,20 @@ public class LuceneIndexingExecutionEngineTests extends OpenSearchTestCase {
         LuceneDataFormat luceneDataFormat = new LuceneDataFormat();
         LuceneIndexingExecutionEngine engine = new LuceneIndexingExecutionEngine(luceneDataFormat, committer, mapperService, store);
         engine.deleteFiles(java.util.Map.of("parquet", java.util.List.of("_0.parquet")));
+    }
+
+    /**
+     * Stamps the capability map on a {@link MappedFieldType} so that {@code format} owns
+     * the capabilities declared in {@link DataFormat#supportedFields()} for the field's type.
+     * Mirrors what {@code BuilderContext.assignCapabilities} does at mapping build time, so
+     * tests that bypass the mapper can still exercise per-format self-filtering in
+     * {@link LuceneDocumentInput#addField}.
+     */
+    public static void assignTestCapabilities(MappedFieldType fieldType, DataFormat format) {
+        format.supportedFields()
+            .stream()
+            .filter(ftc -> ftc.fieldType().equals(fieldType.typeName()))
+            .findFirst()
+            .ifPresent(ftc -> fieldType.setCapabilityMap(Map.of(format, ftc.capabilities())));
     }
 }

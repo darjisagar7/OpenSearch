@@ -80,7 +80,7 @@ public class LuceneDataFormatAwareEngineTests extends AbstractDataFormatAwareEng
 
     @Override
     protected DocumentInput<?> createDocumentInput() {
-        return new LuceneDocumentInput(new LuceneFieldFactoryRegistry());
+        return new LuceneDocumentInput(createDataFormatPlugin().getDataFormat(), new LuceneFieldFactoryRegistry());
     }
 
     @Override

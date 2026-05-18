@@ -35,11 +35,13 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.opensearch.parquet.engine.ParquetIndexingEngineTests.assignTestCapabilities;
 import static org.opensearch.parquet.engine.ParquetIndexingEngineTests.metadataFields;
 import static org.opensearch.parquet.engine.ParquetIndexingEngineTests.populateMetadataFields;
 
 public class ParquetWriterTests extends OpenSearchTestCase {
 
+    private final ParquetDataFormat parquetFormat = new ParquetDataFormat();
     private ArrowBufferPool bufferPool;
     private MappedFieldType idField;
     private MappedFieldType nameField;
@@ -56,6 +58,9 @@ public class ParquetWriterTests extends OpenSearchTestCase {
         idField = new NumberFieldMapper.NumberFieldType("id", NumberFieldMapper.NumberType.INTEGER);
         nameField = new KeywordFieldMapper.KeywordFieldType("name");
         scoreField = new NumberFieldMapper.NumberFieldType("score", NumberFieldMapper.NumberType.LONG);
+        assignTestCapabilities(idField, parquetFormat);
+        assignTestCapabilities(nameField, parquetFormat);
+        assignTestCapabilities(scoreField, parquetFormat);
         schema = buildSchema(List.of(idField, nameField, scoreField));
         Settings indexSettingsBuilder = Settings.builder()
             .put(IndexMetadata.SETTING_VERSION_CREATED, Version.CURRENT)
@@ -98,7 +103,7 @@ public class ParquetWriterTests extends OpenSearchTestCase {
             null
         );
 
-        ParquetDocumentInput doc = new ParquetDocumentInput();
+        ParquetDocumentInput doc = new ParquetDocumentInput(parquetFormat);
         populateMetadataFields(doc);
         doc.addField(idField, 1);
         doc.addField(nameField, "alice");
@@ -124,7 +129,7 @@ public class ParquetWriterTests extends OpenSearchTestCase {
             null
         );
 
-        ParquetDocumentInput doc = new ParquetDocumentInput();
+        ParquetDocumentInput doc = new ParquetDocumentInput(parquetFormat);
         populateMetadataFields(doc);
         doc.addField(idField, 42);
         doc.addField(nameField, "bob");
@@ -152,7 +157,7 @@ public class ParquetWriterTests extends OpenSearchTestCase {
         );
 
         for (int i = 0; i < 10; i++) {
-            ParquetDocumentInput doc = new ParquetDocumentInput();
+            ParquetDocumentInput doc = new ParquetDocumentInput(parquetFormat);
             populateMetadataFields(doc);
             doc.addField(idField, i);
             doc.addField(nameField, "user_" + i);
@@ -198,7 +203,7 @@ public class ParquetWriterTests extends OpenSearchTestCase {
             null
         );
 
-        ParquetDocumentInput doc = new ParquetDocumentInput();
+        ParquetDocumentInput doc = new ParquetDocumentInput(parquetFormat);
         populateMetadataFields(doc);
         doc.addField(idField, 1);
         doc.addField(nameField, "alice");
