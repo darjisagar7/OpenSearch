@@ -26,6 +26,7 @@ import org.opensearch.index.codec.CodecService;
 import org.opensearch.index.engine.EngineConfig;
 import org.opensearch.index.engine.EngineConfigFactory;
 import org.opensearch.index.engine.dataformat.DataFormat;
+import org.opensearch.index.engine.dataformat.DataFormatTestUtils;
 import org.opensearch.index.engine.dataformat.FileInfos;
 import org.opensearch.index.engine.dataformat.RefreshInput;
 import org.opensearch.index.engine.dataformat.RefreshResult;
@@ -54,7 +55,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -428,18 +428,7 @@ public class LuceneIndexingExecutionEngineTests extends OpenSearchTestCase {
         engine.deleteFiles(java.util.Map.of("parquet", java.util.List.of("_0.parquet")));
     }
 
-    /**
-     * Stamps the capability map on a {@link MappedFieldType} so that {@code format} owns
-     * the capabilities declared in {@link DataFormat#supportedFields()} for the field's type.
-     * Mirrors what {@code BuilderContext.assignCapabilities} does at mapping build time, so
-     * tests that bypass the mapper can still exercise per-format self-filtering in
-     * {@link LuceneDocumentInput#addField}.
-     */
     public static void assignTestCapabilities(MappedFieldType fieldType, DataFormat format) {
-        format.supportedFields()
-            .stream()
-            .filter(ftc -> ftc.fieldType().equals(fieldType.typeName()))
-            .findFirst()
-            .ifPresent(ftc -> fieldType.setCapabilityMap(Map.of(format, ftc.capabilities())));
+        DataFormatTestUtils.assignTestCapabilities(fieldType, format);
     }
 }

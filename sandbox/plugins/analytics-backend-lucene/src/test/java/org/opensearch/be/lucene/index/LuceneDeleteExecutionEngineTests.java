@@ -34,10 +34,12 @@ import org.opensearch.test.IndexSettingsModule;
 import org.opensearch.test.OpenSearchTestCase;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.mockito.Mockito.mock;
@@ -130,9 +132,9 @@ public class LuceneDeleteExecutionEngineTests extends OpenSearchTestCase {
         when(idField.hasDocValues()).thenReturn(false);
         // Stamp this format as the owner so the per-format filter accepts the field
         when(idField.getCapabilityMap()).thenReturn(
-            java.util.Map.of(dataFormat, java.util.Set.of(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.STORED_FIELDS))
+            Map.of(dataFormat, java.util.Set.of(org.opensearch.index.engine.dataformat.FieldTypeCapabilities.Capability.STORED_FIELDS))
         );
-        input.addField(idField, id.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        input.addField(idField, id.getBytes(StandardCharsets.UTF_8));
         input.setRowId(DocumentInput.ROW_ID_FIELD, rowId);
         writer.addDoc(input);
     }

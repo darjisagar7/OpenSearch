@@ -76,7 +76,7 @@ public class CompositeCommitDeletionIT extends OpenSearchIntegTestCase {
                     .put("index.composite.primary_data_format", "parquet")
                     .putList("index.composite.secondary_data_formats")
             )
-            .setMapping("field", "type=keyword")
+            .setMapping("field", "type=integer")
             .get();
         ensureGreen(INDEX_NAME);
     }
@@ -85,7 +85,7 @@ public class CompositeCommitDeletionIT extends OpenSearchIntegTestCase {
         for (int i = startId; i < startId + count; i++) {
             assertEquals(
                 RestStatus.CREATED,
-                client().prepareIndex().setIndex(INDEX_NAME).setId(String.valueOf(i)).setSource("field", "value_" + i).get().status()
+                client().prepareIndex().setIndex(INDEX_NAME).setId(String.valueOf(i)).setSource("field", i).get().status()
             );
         }
     }
